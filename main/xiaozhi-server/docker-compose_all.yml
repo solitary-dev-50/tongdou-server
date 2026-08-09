@@ -17,6 +17,7 @@ services:
       - TZ=Asia/Shanghai
     volumes:
       - ./data:/opt/xiaozhi-esp32-server/data
+      - ./core/providers/asr/xunfei_stream.py:/opt/xiaozhi-esp32-server/core/providers/asr/xunfei_stream.py:ro
 
   xiaozhi-esp32-server-web:
     image: xiaozhi-esp32-server-web:local-login-captcha-off

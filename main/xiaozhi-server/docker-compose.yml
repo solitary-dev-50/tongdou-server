@@ -18,3 +18,4 @@ services:
     volumes:
       # 配置文件目录
       - ./data:/opt/xiaozhi-esp32-server/data
+      - ./core/providers/asr/xunfei_stream.py:/opt/xiaozhi-esp32-server/core/providers/asr/xunfei_stream.py:ro

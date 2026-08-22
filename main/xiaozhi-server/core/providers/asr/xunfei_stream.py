@@ -4,7 +4,6 @@ import base64
 import hashlib
 import asyncio
 import websockets
-import opuslib_next
 import gc
 from time import mktime
 from datetime import datetime
@@ -36,7 +35,6 @@ class ASRProvider(ASRProviderBase):
         self.interface_type = InterfaceType.STREAM
         self.config = config
         self.text = ""
-        self.decoder = opuslib_next.Decoder(16000, 1)
         self.asr_ws = None
         self.forward_task = None
         self.is_processing = False
@@ -139,8 +137,7 @@ class ASRProvider(ASRProviderBase):
         # 发送当前音频数据
         if self.asr_ws and self.is_processing and self.server_ready:
             try:
-                pcm_frame = self.decoder.decode(audio, 960)
-                await self._send_audio_frame(pcm_frame, STATUS_CONTINUE_FRAME)
+                await self._send_audio_frame(audio, STATUS_CONTINUE_FRAME)
             except Exception as e:
                 logger.bind(tag=TAG).warning(f"发送音频数据时发生错误: {e}")
                 await self._cleanup()
@@ -167,9 +164,7 @@ class ASRProvider(ASRProviderBase):
             # 发送首帧音频
             if conn.asr_audio and len(conn.asr_audio) > 0:
                 first_audio = conn.asr_audio[-1] if conn.asr_audio else b""
-                pcm_frame = (
-                    self.decoder.decode(first_audio, 960) if first_audio else b""
-                )
+                pcm_frame = first_audio if first_audio else b""
                 await self._send_audio_frame(pcm_frame, STATUS_FIRST_FRAME)
                 self.server_ready = True
                 logger.bind(tag=TAG).info("已发送首帧，开始识别")
@@ -177,8 +172,7 @@ class ASRProvider(ASRProviderBase):
                 # 发送缓存的音频数据
                 for cached_audio in conn.asr_audio[-10:]:
                     try:
-                        pcm_frame = self.decoder.decode(cached_audio, 960)
-                        await self._send_audio_frame(pcm_frame, STATUS_CONTINUE_FRAME)
+                        await self._send_audio_frame(cached_audio, STATUS_CONTINUE_FRAME)
                     except Exception as e:
                         logger.bind(tag=TAG).info(f"发送缓存音频数据时发生错误: {e}")
                         break

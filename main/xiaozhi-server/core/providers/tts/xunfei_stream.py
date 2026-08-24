@@ -258,6 +258,12 @@ class TTSProvider(TTSProviderBase):
                         # 发送文本合成请求
                         run_request = self._build_base_request(status=1, text=txt)
                         await self.ws.send(json.dumps(run_request))
+                        if hasattr(self.conn, "log_voice_timeline"):
+                            self.conn.log_voice_timeline(
+                                "tts_first_text_sent",
+                                getattr(self.conn, "sentence_id", None),
+                                f"chars={len(txt)}",
+                            )
             return
 
         except Exception as e:
@@ -281,7 +287,17 @@ class TTSProvider(TTSProviderBase):
             self.activate_session = True
 
             # 建立新连接
+            connect_started_at = time.monotonic()
             await self._ensure_connection()
+            if hasattr(self.conn, "log_voice_timeline"):
+                connect_ms = int(
+                    (time.monotonic() - connect_started_at) * 1000
+                )
+                self.conn.log_voice_timeline(
+                    "tts_connected",
+                    session_id,
+                    f"connect_ms={connect_ms}",
+                )
 
             # 启动监听任务
             if self._monitor_task is None or self._monitor_task.done():
@@ -376,6 +392,15 @@ class TTSProvider(TTSProviderBase):
                                     self._process_before_stop_play_files()
                                     break
                                 else:
+                                    if audio_data and hasattr(
+                                        self.conn, "log_voice_timeline"
+                                    ):
+                                        self.conn.log_voice_timeline(
+                                            "tts_first_audio_received",
+                                            getattr(
+                                                self.conn, "sentence_id", None
+                                            ),
+                                        )
                                     tts_text = self.get_tts_text(self.conn.sentence_id)
                                     if tts_text:
                                         logger.bind(tag=TAG).info(

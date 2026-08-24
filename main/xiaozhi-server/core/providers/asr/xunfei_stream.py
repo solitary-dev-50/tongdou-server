@@ -29,6 +29,9 @@ STATUS_LAST_FRAME = 2  # 最后一帧的标识
 XUNFEI_ASR_HOST = "iat-api.xfyun.cn"
 XUNFEI_ASR_PATH = "/v2/iat"
 XUNFEI_ASR_URL = f"wss://{XUNFEI_ASR_HOST}{XUNFEI_ASR_PATH}"
+# 讯飞规定累计 10 秒不发送数据会超时。提前连接只保留 5 秒，
+# 既能覆盖用户通常的开口时间，也不会长期占用未开始的识别会话。
+ASR_PRECONNECT_MAX_AGE_SECONDS = 5.0
 
 
 class ASRProvider(ASRProviderBase):
@@ -43,6 +46,9 @@ class ASRProvider(ASRProviderBase):
         self.server_ready = False
         self.final_frame_sent = False
         self.decoder = None
+        self.preconnect_task = None
+        self.preconnect_expiry_task = None
+        self.preconnect_listen_started_at = 0
 
         # 讯飞配置
         self.app_id = config.get("app_id")
@@ -129,6 +135,11 @@ class ASRProvider(ASRProviderBase):
         # 先调用父类方法处理基础逻辑
         await super().receive_audio(conn, audio, audio_have_voice)
 
+        # 监听刚开始时提前完成鉴权和网络握手，但不发送音频。
+        # 每轮只尝试一次；用户没有及时开口时，连接会自动关闭。
+        if not audio_have_voice and self.asr_ws is None and not self.is_processing:
+            self._start_preconnect(conn)
+
         # 如果本次有声音，且之前没有建立连接
         if audio_have_voice and self.asr_ws is None and not self.is_processing:
             try:
@@ -152,6 +163,104 @@ class ASRProvider(ASRProviderBase):
                 logger.bind(tag=TAG).warning(f"发送音频数据时发生错误: {e}")
                 await self._cleanup()
 
+    def _start_preconnect(self, conn: "ConnectionHandler"):
+        """每轮监听只提前建立一次 ASR WebSocket。"""
+        listen_started_at = getattr(conn, "voice_debug_started_at", 0)
+        if listen_started_at <= 0:
+            return
+        if self.preconnect_listen_started_at == listen_started_at:
+            return
+        if self.preconnect_task is not None:
+            return
+
+        self.preconnect_listen_started_at = listen_started_at
+        ws_url = self.create_url()
+        self.preconnect_task = asyncio.create_task(self._connect_asr(ws_url))
+        self.preconnect_expiry_task = asyncio.create_task(
+            self._expire_preconnect(self.preconnect_task, listen_started_at)
+        )
+        elapsed_ms = int(time.time() * 1000 - listen_started_at)
+        logger.bind(tag=TAG).info(
+            "语音时间线 asr_preconnect_start: "
+            f"elapsed_ms={elapsed_ms}, mode={conn.client_listen_mode}"
+        )
+
+    async def _expire_preconnect(self, task, listen_started_at):
+        """关闭没有等到用户开口的预连接。"""
+        try:
+            elapsed_seconds = max(
+                0.0, (time.time() * 1000 - listen_started_at) / 1000.0
+            )
+            await asyncio.sleep(
+                max(0.0, ASR_PRECONNECT_MAX_AGE_SECONDS - elapsed_seconds)
+            )
+            if self.preconnect_task is not task:
+                return
+
+            self.preconnect_task = None
+            if not task.done():
+                task.cancel()
+            try:
+                ws = await task
+                await ws.close()
+                logger.bind(tag=TAG).info("ASR预连接未使用，已按时关闭")
+            except asyncio.CancelledError:
+                logger.bind(tag=TAG).info("ASR预连接未使用，已取消建立")
+            except Exception as e:
+                logger.bind(tag=TAG).info(f"ASR预连接未建立: {e}")
+        except asyncio.CancelledError:
+            pass
+        finally:
+            if self.preconnect_expiry_task is asyncio.current_task():
+                self.preconnect_expiry_task = None
+
+    async def _take_preconnected_ws(self):
+        """取走当前轮的预连接；不可用时由正式流程重新连接。"""
+        task = self.preconnect_task
+        if task is None:
+            return None
+
+        self.preconnect_task = None
+        expiry_task = self.preconnect_expiry_task
+        self.preconnect_expiry_task = None
+        if expiry_task:
+            expiry_task.cancel()
+            try:
+                await expiry_task
+            except asyncio.CancelledError:
+                pass
+
+        try:
+            ws = await task
+            state_name = getattr(getattr(ws, "state", None), "name", "OPEN")
+            if getattr(ws, "closed", False) or state_name != "OPEN":
+                await ws.close()
+                return None
+            return ws
+        except Exception as e:
+            logger.bind(tag=TAG).info(f"ASR预连接不可用，将重新连接: {e}")
+            return None
+
+    async def _discard_preconnect(self):
+        """连接结束时清理尚未使用的预连接。"""
+        expiry_task = self.preconnect_expiry_task
+        self.preconnect_expiry_task = None
+        if expiry_task:
+            expiry_task.cancel()
+
+        task = self.preconnect_task
+        self.preconnect_task = None
+        if task:
+            if not task.done():
+                task.cancel()
+            try:
+                ws = await task
+                await ws.close()
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
+
     async def _start_recognition(self, conn: "ConnectionHandler"):
         """开始识别会话"""
         try:
@@ -172,14 +281,23 @@ class ASRProvider(ASRProviderBase):
             if conn.client_listen_mode == "manual":
                 self.current_iat_params["vad_eos"] = 60000
 
-            self.asr_ws = await self._connect_asr(ws_url)
+            connect_wait_started_at = time.monotonic()
+            self.asr_ws = await self._take_preconnected_ws()
+            used_preconnect = self.asr_ws is not None
+            if self.asr_ws is None:
+                self.asr_ws = await self._connect_asr(ws_url)
 
             logger.bind(tag=TAG).info("ASR WebSocket连接已建立")
             elapsed_ms = int(time.time() * 1000 - started_at) if started_at else 0
+            connect_wait_ms = int(
+                (time.monotonic() - connect_wait_started_at) * 1000
+            )
             logger.bind(tag=TAG).info(
                 "语音时间线 asr_connected: "
                 f"elapsed_ms={elapsed_ms}, mode={conn.client_listen_mode}, "
-                f"cached_audio={len(conn.asr_audio)}"
+                f"cached_audio={len(conn.asr_audio)}, "
+                f"preconnected={int(used_preconnect)}, "
+                f"connect_wait_ms={connect_wait_ms}"
             )
             self.server_ready = False
             self.final_frame_sent = False
@@ -410,6 +528,7 @@ class ASRProvider(ASRProviderBase):
 
     async def close(self):
         """资源清理方法"""
+        await self._discard_preconnect()
         if self.asr_ws:
             await self.asr_ws.close()
             self.asr_ws = None

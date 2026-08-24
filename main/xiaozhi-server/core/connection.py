@@ -178,6 +178,10 @@ class ConnectionHandler:
         self.conversation_exit_reason = None
         self.conversation_goodbye_sent = False
         self.conversation_active = False
+        # 当前一轮回复的性能时间线。只用于定位耗时，不参与业务判断。
+        self.voice_timeline_sentence_id = None
+        self.voice_timeline_started_at = 0.0
+        self.voice_timeline_stages = set()
         self.load_function_plugin = False
         self.intent_type = "nointent"
 
@@ -917,6 +921,34 @@ class ConnectionHandler:
         # 更新系统prompt至上下文
         self.dialogue.update_system_message(self.prompt)
 
+    def start_voice_timeline(self, sentence_id):
+        """为当前一轮回复建立统一的耗时基准。"""
+        self.voice_timeline_sentence_id = sentence_id
+        self.voice_timeline_started_at = time.monotonic()
+        self.voice_timeline_stages = set()
+        self.log_voice_timeline("chat_start", sentence_id)
+
+    def log_voice_timeline(self, stage, sentence_id=None, detail=None):
+        """同一轮的每个关键阶段只记录一次。"""
+        if self.voice_timeline_started_at <= 0.0:
+            return
+        if sentence_id and sentence_id != self.voice_timeline_sentence_id:
+            return
+        if stage in self.voice_timeline_stages:
+            return
+
+        self.voice_timeline_stages.add(stage)
+        elapsed_ms = int(
+            (time.monotonic() - self.voice_timeline_started_at) * 1000
+        )
+        message = (
+            f"语音回复时间线 {stage}: elapsed_ms={elapsed_ms}, "
+            f"sentence_id={self.voice_timeline_sentence_id}"
+        )
+        if detail:
+            message += f", {detail}"
+        self.logger.bind(tag=TAG).info(message)
+
     def chat(self, query, depth=0):
         # 保存当前任务的sentence_id到局部变量，避免被新任务覆盖
         current_sentence_id = None
@@ -928,6 +960,7 @@ class ConnectionHandler:
         if depth == 0:
             current_sentence_id = str(uuid.uuid4().hex)
             self.sentence_id = current_sentence_id  # 更新共享属性
+            self.start_voice_timeline(current_sentence_id)
             self.dialogue.put(Message(role="user", content=query))
             self.tts.tts_text_queue.put(
                 TTSMessageDTO(
@@ -1013,6 +1046,9 @@ class ConnectionHandler:
             for response in llm_responses:
                 if self.client_abort:
                     break
+                self.log_voice_timeline(
+                    "llm_first_chunk", current_sentence_id
+                )
                 if self.intent_type == "function_call" and functions is not None:
                     content, tools_call = response
                     if "content" in response:
@@ -1575,6 +1611,12 @@ class ConnectionHandler:
         """检查连接超时"""
         try:
             while not self.stop_event.is_set():
+                # 已绑定且没有处于对话中的设备由 WebSocket 底层心跳保活。
+                # 业务无活动不等于连接已断，不能因此反复关闭、重连和重新初始化。
+                if not self.need_bind and not self.conversation_active:
+                    await asyncio.sleep(10)
+                    continue
+
                 last_activity_time = self.last_activity_time
                 if self.need_bind:
                     last_activity_time = self.first_activity_time
@@ -1594,11 +1636,6 @@ class ConnectionHandler:
                                     await begin_conversation_exit(
                                         self, "server_timeout"
                                     )
-                                else:
-                                    self.logger.bind(tag=TAG).info(
-                                        "空闲连接超时，静默关闭"
-                                    )
-                                    await self.close(self.websocket)
                             except Exception as close_error:
                                 self.logger.bind(tag=TAG).error(
                                     f"超时请求正常退出时出错: {close_error}"

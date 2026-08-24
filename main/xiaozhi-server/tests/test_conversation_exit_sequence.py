@@ -154,7 +154,7 @@ class ConversationExitSequenceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(conn.websocket.messages[-1]["reason"], "no_voice")
         self.assertTrue(conn.closed)
 
-    async def test_idle_connection_timeout_closes_without_farewell(self):
+    async def test_idle_connection_is_kept_alive_by_websocket_heartbeat(self):
         conn = ConnectionHandler.__new__(ConnectionHandler)
         conn.stop_event = asyncio.Event()
         conn.last_activity_time = time.time() * 1000 - 1_000
@@ -171,10 +171,16 @@ class ConversationExitSequenceTest(unittest.IsolatedAsyncioTestCase):
             conn.stop_event.set()
 
         conn.close = close
-        await conn._check_timeout()
+        timeout_task = asyncio.create_task(conn._check_timeout())
+        await asyncio.sleep(0.01)
 
-        self.assertTrue(conn.closed)
+        self.assertFalse(conn.closed)
         self.assertEqual(conn.websocket.messages, [])
+
+        conn.stop_event.set()
+        timeout_task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await timeout_task
 
 
 if __name__ == "__main__":

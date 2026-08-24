@@ -262,6 +262,13 @@ async def _do_send_audio(conn: "ConnectionHandler", opus_packet, flow_control):
         # 直接发送opus数据包
         await conn.websocket.send(opus_packet)
 
+    if packet_index == 0 and hasattr(conn, "log_voice_timeline"):
+        conn.log_voice_timeline(
+            "first_tts_packet_sent",
+            getattr(conn, "sentence_id", None),
+            f"bytes={len(opus_packet)}",
+        )
+
     # 更新流控状态
     flow_control["packet_count"] = packet_index + 1
     flow_control["sequence"] = sequence + 1

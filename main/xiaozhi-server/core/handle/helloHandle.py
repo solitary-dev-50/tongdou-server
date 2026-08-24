@@ -12,7 +12,8 @@ from core.utils.util import audio_to_data
 from core.providers.tts.dto.dto import SentenceType
 from core.utils.wakeup_word import WakeupWordsConfig
 from core.handle.sendAudioHandle import sendAudioMessage, send_tts_message
-from core.utils.util import remove_punctuation_and_length, opus_datas_to_wav_bytes
+from core.utils.util import opus_datas_to_wav_bytes
+from core.utils.wakeup_word_matcher import matches_wakeup_word
 from core.providers.tools.device_mcp import MCPClient, send_mcp_initialize_message
 
 TAG = __name__
@@ -56,6 +57,9 @@ async def handleHelloMessage(conn: "ConnectionHandler", msg_json):
             conn.mcp_client = MCPClient()
             # 发送初始化
             asyncio.create_task(send_mcp_initialize_message(conn))
+        if features.get("aec"):
+            conn.logger.bind(tag=TAG).debug("客户端启用了服务端AEC")
+            conn.client_aec = True
 
     await conn.websocket.send(json.dumps(conn.welcome_msg))
 
@@ -77,8 +81,7 @@ async def checkWakeupWords(conn: "ConnectionHandler", text):
     if not enable_wakeup_words_response_cache:
         return False
 
-    _, filtered_text = remove_punctuation_and_length(text)
-    if filtered_text not in conn.config.get("wakeup_words"):
+    if not matches_wakeup_word(text, conn.config.get("wakeup_words")):
         return False
 
     conn.just_woken_up = True

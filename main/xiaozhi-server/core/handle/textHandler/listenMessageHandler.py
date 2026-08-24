@@ -13,8 +13,8 @@ from core.handle.reportHandle import enqueue_asr_report
 from core.handle.sendAudioHandle import send_stt_message, send_tts_message
 from core.handle.textMessageHandler import TextMessageHandler
 from core.handle.textMessageType import TextMessageType
-from core.utils.util import remove_punctuation_and_length
 from core.providers.tts.dto.dto import ContentType, TTSMessageDTO, SentenceType
+from core.utils.wakeup_word_matcher import matches_wakeup_word
 
 
 TAG = __name__
@@ -96,10 +96,6 @@ class ListenTextMessageHandler(TextMessageHandler):
             if "text" in msg_json:
                 conn.last_activity_time = time.time() * 1000
                 original_text = msg_json["text"]  # 保留原始文本
-                filtered_len, filtered_text = remove_punctuation_and_length(
-                    original_text
-                )
-
                 # 检查是否是设备呼叫指令 [device_call]
                 if original_text.startswith("[device_call]"):
                     # 提取 tag 后的文本
@@ -132,7 +128,9 @@ class ListenTextMessageHandler(TextMessageHandler):
                     return
 
                 # 识别是否是唤醒词
-                is_wakeup_words = filtered_text in conn.config.get("wakeup_words")
+                is_wakeup_words = matches_wakeup_word(
+                    original_text, conn.config.get("wakeup_words")
+                )
                 # 是否开启唤醒词回复
                 enable_greeting = conn.config.get("enable_greeting", True)
 
@@ -144,8 +142,8 @@ class ListenTextMessageHandler(TextMessageHandler):
                 elif is_wakeup_words:
                     conn.just_woken_up = True
                     # 上报纯文字数据（复用ASR上报功能，但不提供音频数据）
-                    enqueue_asr_report(conn, "嘿，你好呀", [])
-                    await startToChat(conn, "嘿，你好呀")
+                    enqueue_asr_report(conn, original_text, [])
+                    await startToChat(conn, original_text)
                 else:
                     conn.just_woken_up = True
                     # 上报纯文字数据（复用ASR上报功能，但不提供音频数据）

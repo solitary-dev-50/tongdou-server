@@ -10,13 +10,45 @@ from core.handle.abortHandle import handleAbortMessage
 from core.handle.intentHandler import handle_user_intent
 from core.utils.output_counter import check_device_output_limit
 from core.handle.sendAudioHandle import send_stt_message, SentenceType
+from core.handle.conversationExitHandle import begin_conversation_exit
 
 TAG = __name__
 
 
 async def handleAudioMessage(conn: "ConnectionHandler", audio):
+    if getattr(conn, "conversation_exit_pending", False):
+        return
+    started_at = getattr(conn, "voice_debug_started_at", 0)
+    elapsed_ms = int(time.time() * 1000 - started_at) if started_at else 0
+    if not getattr(conn, "voice_debug_first_audio_logged", False):
+        conn.voice_debug_first_audio_logged = True
+        conn.logger.bind(tag=TAG).info(
+            "语音时间线 first_audio_received: "
+            f"elapsed_ms={elapsed_ms}, mode={conn.client_listen_mode}, "
+            f"bytes={len(audio)}"
+        )
+
     # 当前片段是否有人说话
     have_voice = conn.vad.is_vad(conn, audio)
+    conn.voice_debug_packets = getattr(conn, "voice_debug_packets", 0) + 1
+    if have_voice:
+        conn.voice_debug_voice_packets = (
+            getattr(conn, "voice_debug_voice_packets", 0) + 1
+        )
+        if not getattr(conn, "voice_debug_first_voice_logged", False):
+            conn.voice_debug_first_voice_logged = True
+            conn.logger.bind(tag=TAG).info(
+                "语音时间线 server_vad_voice_detected: "
+                f"elapsed_ms={elapsed_ms}, packet={conn.voice_debug_packets}, "
+                f"mode={conn.client_listen_mode}"
+            )
+    elif conn.voice_debug_packets % 50 == 0:
+        conn.logger.bind(tag=TAG).info(
+            "拾音中: "
+            f"packets={conn.voice_debug_packets}, "
+            f"voice_packets={getattr(conn, 'voice_debug_voice_packets', 0)}, "
+            f"mode={conn.client_listen_mode}"
+        )
     # 如果设备刚刚被唤醒，短暂忽略VAD检测
     if hasattr(conn, "just_woken_up") and conn.just_woken_up:
         have_voice = False
@@ -25,7 +57,8 @@ async def handleAudioMessage(conn: "ConnectionHandler", audio):
             conn.vad_resume_task = asyncio.create_task(resume_vad_detection(conn))
         return
     # 设备长时间空闲检测，用于say goodbye
-    await no_voice_close_connect(conn, have_voice)
+    if await no_voice_close_connect(conn, have_voice):
+        return
     # 接收音频
     await conn.asr.receive_audio(conn, audio, have_voice)
 
@@ -37,6 +70,11 @@ async def resume_vad_detection(conn: "ConnectionHandler"):
 
 
 async def startToChat(conn: "ConnectionHandler", text):
+    if getattr(conn, "conversation_exit_pending", False):
+        conn.logger.bind(tag=TAG).info(
+            "忽略正常退出开始后的迟到识别结果"
+        )
+        return
     # 检查输入是否是JSON格式（包含说话人信息）
     speaker_name = None
     language_tag = None
@@ -107,20 +145,12 @@ async def no_voice_close_connect(conn: "ConnectionHandler", have_voice):
             conn.config.get("close_connection_no_voice_time", 120)
         )
         if (
-            not conn.close_after_chat
+            not getattr(conn, "conversation_exit_pending", False)
             and no_voice_time > 1000 * close_connection_no_voice_time
         ):
-            conn.close_after_chat = True
-            conn.client_abort = False
-            end_prompt = conn.config.get("end_prompt", {})
-            if end_prompt and end_prompt.get("enable", True) is False:
-                conn.logger.bind(tag=TAG).info("结束对话，无需发送结束提示语")
-                await conn.close()
-                return
-            prompt = end_prompt.get("prompt")
-            if not prompt:
-                prompt = "请你以```时间过得真快```未来头，用富有感情、依依不舍的话来结束这场对话吧。！"
-            await startToChat(conn, prompt)
+            await begin_conversation_exit(conn, "no_voice")
+            return True
+    return False
 
 
 async def max_out_size(conn: "ConnectionHandler"):

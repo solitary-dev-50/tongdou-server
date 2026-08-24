@@ -27,6 +27,16 @@ class ListenTextMessageHandler(TextMessageHandler):
         return TextMessageType.LISTEN
 
     async def handle(self, conn: "ConnectionHandler", msg_json: Dict[str, Any]) -> None:
+        if (
+            msg_json.get("state") == "start"
+            and getattr(conn, "conversation_exit_pending", False)
+        ):
+            conn.logger.bind(tag=TAG).warning(
+                "conversation_listen_start_rejected: "
+                f"exit_reason={conn.conversation_exit_reason}, "
+                f"session={conn.session_id}"
+            )
+            return
         if "mode" in msg_json:
             conn.client_listen_mode = msg_json["mode"]
             conn.logger.bind(tag=TAG).debug(
@@ -34,13 +44,40 @@ class ListenTextMessageHandler(TextMessageHandler):
             )
         if msg_json["state"] == "start":
             # 设备从播放模式切回录音模式,清除所有音频状态和缓冲区
+            now_ms = time.time() * 1000
+            conn.conversation_active = True
+            conn.last_activity_time = now_ms
+            conn.close_after_chat = False
+            conn.client_abort = False
+            conn.just_woken_up = False
             conn.reset_audio_states()
+            conn.voice_debug_packets = 0
+            conn.voice_debug_voice_packets = 0
+            conn.voice_debug_first_voice_logged = False
+            conn.voice_debug_first_audio_logged = False
+            conn.voice_debug_started_at = now_ms
+            conn.logger.bind(tag=TAG).info(
+                "语音时间线 listen_start_received: "
+                f"elapsed_ms=0, mode={conn.client_listen_mode}, "
+                f"session={conn.session_id}"
+            )
         elif msg_json["state"] == "stop":
             # 收到stop但asr未初始化，跳过处理
             if conn.asr is None:
                 return
 
             conn.client_voice_stop = True
+            started_at = getattr(conn, "voice_debug_started_at", 0)
+            elapsed_ms = int(time.time() * 1000 - started_at) if started_at else 0
+            conn.logger.bind(tag=TAG).info(
+                "停止拾音: "
+                f"mode={conn.client_listen_mode}, "
+                f"packets={getattr(conn, 'voice_debug_packets', 0)}, "
+                f"voice_packets={getattr(conn, 'voice_debug_voice_packets', 0)}, "
+                f"have_voice={conn.client_have_voice}, "
+                f"voice_stop={conn.client_voice_stop}, "
+                f"elapsed_ms={elapsed_ms}"
+            )
             if conn.asr.interface_type == InterfaceType.STREAM:
                 # 流式模式下，发送结束请求
                 asyncio.create_task(conn.asr._send_stop_request())
@@ -53,6 +90,7 @@ class ListenTextMessageHandler(TextMessageHandler):
                     if len(asr_audio_task) > 0:
                         await conn.asr.handle_voice_stop(conn, asr_audio_task)
         elif msg_json["state"] == "detect":
+            conn.conversation_active = True
             conn.client_have_voice = False
             conn.reset_audio_states()
             if "text" in msg_json:

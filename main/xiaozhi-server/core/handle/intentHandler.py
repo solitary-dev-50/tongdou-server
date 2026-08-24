@@ -13,6 +13,10 @@ from core.handle.sendAudioHandle import send_stt_message
 from core.handle.reportHandle import enqueue_tool_report
 from core.utils.util import remove_punctuation_and_length
 from core.providers.tts.dto.dto import TTSMessageDTO, SentenceType
+from core.handle.conversationExitHandle import (
+    begin_conversation_exit,
+    is_semantic_exit,
+)
 
 TAG = __name__
 
@@ -31,6 +35,11 @@ async def handle_user_intent(conn: "ConnectionHandler", text):
     # 检查是否有明确的退出命令
     _, filtered_text = remove_punctuation_and_length(text)
     if await check_direct_exit(conn, filtered_text):
+        return True
+
+    if is_semantic_exit(filtered_text):
+        conn.logger.bind(tag=TAG).info(f"识别到明确的语义退出: {filtered_text}")
+        await begin_conversation_exit(conn, "semantic", text)
         return True
 
     # 检查是否是唤醒词
@@ -57,8 +66,7 @@ async def check_direct_exit(conn: "ConnectionHandler", text):
     for cmd in cmd_exit:
         if text == cmd:
             conn.logger.bind(tag=TAG).info(f"识别到明确的退出命令: {text}")
-            await send_stt_message(conn, text)
-            await conn.close()
+            await begin_conversation_exit(conn, "exact_command", text)
             return True
     return False
 

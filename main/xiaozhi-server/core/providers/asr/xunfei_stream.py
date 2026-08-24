@@ -5,6 +5,8 @@ import hashlib
 import asyncio
 import websockets
 import gc
+import time
+import opuslib_next
 from time import mktime
 from datetime import datetime
 from urllib.parse import urlencode
@@ -40,6 +42,7 @@ class ASRProvider(ASRProviderBase):
         self.is_processing = False
         self.server_ready = False
         self.final_frame_sent = False
+        self.decoder = None
 
         # 讯飞配置
         self.app_id = config.get("app_id")
@@ -61,6 +64,7 @@ class ASRProvider(ASRProviderBase):
             "dwa": config.get("dwa", "wpgs"),
             "vad_eos": int(config.get("vad_eos", 5000) or 5000),
         }
+        self.current_iat_params = dict(self.iat_params)
 
         self.output_dir = config.get("output_dir", "tmp/")
         self.delete_audio_file = delete_audio_file
@@ -133,11 +137,17 @@ class ASRProvider(ASRProviderBase):
                 logger.bind(tag=TAG).error(f"建立ASR连接失败: {str(e)}")
                 await self._cleanup()
                 return
+            return
 
         # 发送当前音频数据
         if self.asr_ws and self.is_processing and self.server_ready:
             try:
-                await self._send_audio_frame(audio, STATUS_CONTINUE_FRAME)
+                if not self.final_frame_sent:
+                    pcm_audio = self._decode_audio_frame(conn, audio)
+                    if pcm_audio:
+                        await self._send_audio_frame(pcm_audio, STATUS_CONTINUE_FRAME)
+                if conn.client_voice_stop and not self.final_frame_sent:
+                    await self._send_stop_request()
             except Exception as e:
                 logger.bind(tag=TAG).warning(f"发送音频数据时发生错误: {e}")
                 await self._cleanup()
@@ -146,36 +156,65 @@ class ASRProvider(ASRProviderBase):
         """开始识别会话"""
         try:
             self.is_processing = True
+            started_at = getattr(conn, "voice_debug_started_at", 0)
+            elapsed_ms = int(time.time() * 1000 - started_at) if started_at else 0
             # 建立WebSocket连接
             ws_url = self.create_url()
             logger.bind(tag=TAG).info(f"正在连接ASR服务: {ws_url[:50]}...")
+            logger.bind(tag=TAG).info(
+                "语音时间线 asr_connect_start: "
+                f"elapsed_ms={elapsed_ms}, mode={conn.client_listen_mode}, "
+                f"cached_audio={len(conn.asr_audio)}"
+            )
 
+            self.current_iat_params = dict(self.iat_params)
             # 如果为手动模式,设置超时时长为一分钟
             if conn.client_listen_mode == "manual":
-                self.iat_params["vad_eos"] = 60000
+                self.current_iat_params["vad_eos"] = 60000
 
             self.asr_ws = await self._connect_asr(ws_url)
 
             logger.bind(tag=TAG).info("ASR WebSocket连接已建立")
+            elapsed_ms = int(time.time() * 1000 - started_at) if started_at else 0
+            logger.bind(tag=TAG).info(
+                "语音时间线 asr_connected: "
+                f"elapsed_ms={elapsed_ms}, mode={conn.client_listen_mode}, "
+                f"cached_audio={len(conn.asr_audio)}"
+            )
             self.server_ready = False
             self.final_frame_sent = False
+            self.decoder = None
             self.forward_task = asyncio.create_task(self._forward_results(conn))
 
-            # 发送首帧音频
-            if conn.asr_audio and len(conn.asr_audio) > 0:
-                first_audio = conn.asr_audio[-1] if conn.asr_audio else b""
-                pcm_frame = first_audio if first_audio else b""
-                await self._send_audio_frame(pcm_frame, STATUS_FIRST_FRAME)
+            cached_audio = conn.asr_audio[-10:] if conn.asr_audio else []
+            first_frame_sent = False
+            cached_pcm_frames = 0
+            cached_pcm_bytes = 0
+            for cached_packet in cached_audio:
+                try:
+                    pcm_frame = self._decode_audio_frame(conn, cached_packet)
+                    if not pcm_frame:
+                        continue
+                    status = STATUS_FIRST_FRAME if not first_frame_sent else STATUS_CONTINUE_FRAME
+                    await self._send_audio_frame(pcm_frame, status)
+                    first_frame_sent = True
+                    cached_pcm_frames += 1
+                    cached_pcm_bytes += len(pcm_frame)
+                except Exception as e:
+                    logger.bind(tag=TAG).info(f"发送缓存音频数据时发生错误: {e}")
+                    break
+
+            if first_frame_sent:
                 self.server_ready = True
                 logger.bind(tag=TAG).info("已发送首帧，开始识别")
-
-                # 发送缓存的音频数据
-                for cached_audio in conn.asr_audio[-10:]:
-                    try:
-                        await self._send_audio_frame(cached_audio, STATUS_CONTINUE_FRAME)
-                    except Exception as e:
-                        logger.bind(tag=TAG).info(f"发送缓存音频数据时发生错误: {e}")
-                        break
+                elapsed_ms = int(time.time() * 1000 - started_at) if started_at else 0
+                logger.bind(tag=TAG).info(
+                    "语音时间线 asr_first_frame_sent: "
+                    f"elapsed_ms={elapsed_ms}, mode={conn.client_listen_mode}, "
+                    f"cached_audio={len(cached_audio)}, "
+                    f"cached_pcm_frames={cached_pcm_frames}, "
+                    f"cached_pcm_bytes={cached_pcm_bytes}"
+                )
 
         except Exception as e:
             logger.bind(tag=TAG).error(f"建立ASR连接失败: {str(e)}")
@@ -204,11 +243,20 @@ class ASRProvider(ASRProviderBase):
         }
         if status == STATUS_FIRST_FRAME:
             frame_data["common"] = {"app_id": self.app_id}
-            frame_data["business"] = self.iat_params
+            frame_data["business"] = self.current_iat_params
 
         await self.asr_ws.send(json.dumps(frame_data, ensure_ascii=False))
         if status == STATUS_LAST_FRAME:
             self.final_frame_sent = True
+
+    def _decode_audio_frame(self, conn: "ConnectionHandler", audio_data: bytes) -> bytes:
+        if not audio_data:
+            return b""
+        if getattr(conn, "audio_format", "opus") == "pcm":
+            return audio_data
+        if self.decoder is None:
+            self.decoder = opuslib_next.Decoder(16000, 1)
+        return self.decoder.decode(audio_data, 960)
 
     async def _forward_results(self, conn: "ConnectionHandler"):
         """转发识别结果"""
@@ -222,6 +270,17 @@ class ASRProvider(ASRProviderBase):
                     data = result.get("data", {})
                     code = result.get("code", 0)
                     status = data.get("status", 0)
+                    text_ws = data.get("result", {}).get("ws", [])
+                    text_piece = ""
+                    for i in text_ws:
+                        for j in i.get("cw", []):
+                            text_piece += j.get("w", "")
+                    logger.bind(tag=TAG).info(
+                        "讯飞ASR返回: "
+                        f"code={code}, status={status}, "
+                        f"text_piece={text_piece or '<empty>'}, "
+                        f"total_text={self.text or '<empty>'}"
+                    )
 
                     if code != 0:
                         logger.bind(tag=TAG).error(
@@ -232,19 +291,23 @@ class ASRProvider(ASRProviderBase):
                         continue
 
                     # 处理识别结果
-                    text_ws = data.get("result", {}).get("ws", [])
                     for i in text_ws:
                         for j in i.get("cw", []):
                             w = j.get("w", "")
                             self.text += w
 
                     if status == 2:
-                        logger.bind(tag=TAG).debug("收到最终识别结果，触发处理")
+                        logger.bind(tag=TAG).info(
+                            f"收到最终识别结果，触发处理: text={self.text or '<empty>'}"
+                        )
                         await self.handle_voice_stop(conn, conn.asr_audio)
                         break
 
                 except asyncio.TimeoutError:
-                    logger.bind(tag=TAG).error("接收结果超时")
+                    logger.bind(tag=TAG).error(
+                        f"接收结果超时: final_frame_sent={self.final_frame_sent}, "
+                        f"text={self.text or '<empty>'}"
+                    )
                     break
                 except websockets.ConnectionClosed:
                     logger.bind(tag=TAG).info("ASR服务连接已关闭")
@@ -299,11 +362,13 @@ class ASRProvider(ASRProviderBase):
         """发送停止识别请求（不关闭连接）"""
         if self.asr_ws:
             try:
-                # 先停止音频发送
-                self.is_processing = False
                 if not self.final_frame_sent:
                     await self._send_audio_frame(b"", STATUS_LAST_FRAME)
-                    logger.bind(tag=TAG).debug("已发送停止请求")
+                    logger.bind(tag=TAG).info(
+                        f"已发送讯飞ASR最后一帧: text={self.text or '<empty>'}"
+                    )
+                else:
+                    logger.bind(tag=TAG).info("讯飞ASR最后一帧此前已发送")
             except Exception as e:
                 logger.bind(tag=TAG).error(f"发送停止请求失败: {e}")
 
@@ -317,6 +382,8 @@ class ASRProvider(ASRProviderBase):
         self.is_processing = False
         self.server_ready = False
         self.final_frame_sent = False
+        self.decoder = None
+        self.current_iat_params = dict(self.iat_params)
         logger.bind(tag=TAG).debug("ASR状态已重置")
 
         # 关闭连接
@@ -355,11 +422,4 @@ class ASRProvider(ASRProviderBase):
             self.forward_task = None
         self.is_processing = False
 
-        # 显式释放decoder资源
-        if hasattr(self, "decoder") and self.decoder is not None:
-            try:
-                del self.decoder
-                self.decoder = None
-                logger.bind(tag=TAG).debug("Xunfei decoder resources released")
-            except Exception as e:
-                logger.bind(tag=TAG).debug(f"释放Xunfei decoder资源时出错: {e}")
+        self.decoder = None

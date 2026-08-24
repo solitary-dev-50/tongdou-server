@@ -72,6 +72,8 @@ class VADProvider(VADProviderBase):
                 conn.client_audio_buffer = conn.client_audio_buffer[512 * 2 :]
 
                 audio_int16 = np.frombuffer(chunk, dtype=np.int16)
+                mean_abs = int(np.mean(np.abs(audio_int16)))
+                peak = int(np.max(np.abs(audio_int16)))
                 audio_float32 = audio_int16.astype(np.float32) / 32768.0
                 audio_input = np.concatenate(
                     [conn._vad_context, audio_float32.reshape(1, -1)], axis=1
@@ -87,6 +89,24 @@ class VADProvider(VADProviderBase):
                 conn._vad_state = state
                 conn._vad_context = audio_input[:, -64:]
                 speech_prob = out.item()
+
+                conn._vad_level_log_count = getattr(conn, "_vad_level_log_count", 0) + 1
+                conn._vad_level_log_max_mean_abs = max(
+                    getattr(conn, "_vad_level_log_max_mean_abs", 0), mean_abs
+                )
+                conn._vad_level_log_max_peak = max(
+                    getattr(conn, "_vad_level_log_max_peak", 0), peak
+                )
+                if conn._vad_level_log_count % 25 == 0:
+                    logger.bind(tag=TAG).info(
+                        "VAD音量诊断: "
+                        f"mode={conn.client_listen_mode}, "
+                        f"mean_abs={mean_abs}, peak={peak}, "
+                        f"max_mean_abs={conn._vad_level_log_max_mean_abs}, "
+                        f"max_peak={conn._vad_level_log_max_peak}, "
+                        f"speech_prob={speech_prob:.4f}, "
+                        f"threshold={self.vad_threshold}"
+                    )
 
                 # 双阈值判断
                 if speech_prob >= self.vad_threshold:

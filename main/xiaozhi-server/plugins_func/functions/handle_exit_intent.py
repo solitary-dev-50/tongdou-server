@@ -1,6 +1,7 @@
 from plugins_func.register import register_function, ToolType, ActionResponse, Action
 from config.logger import setup_logging
 from typing import TYPE_CHECKING
+from core.handle.conversationExitHandle import mark_conversation_exit
 
 if TYPE_CHECKING:
     from core.connection import ConnectionHandler
@@ -35,8 +36,7 @@ def handle_exit_intent(conn: "ConnectionHandler", say_goodbye: str | None = None
     try:
         if say_goodbye is None:
             say_goodbye = "再见，祝您生活愉快！"
-        if not conn.close_after_chat:
-            conn.close_after_chat = True
+        mark_conversation_exit(conn, "semantic_tool")
         logger.bind(tag=TAG).info(f"退出意图已处理:{say_goodbye}")
         return ActionResponse(
             action=Action.RESPONSE, result="退出意图已处理", response=say_goodbye

@@ -9,6 +9,7 @@ from core.utils import textUtils
 from core.utils.util import audio_to_data
 from core.providers.tts.dto.dto import SentenceType
 from core.utils.audioRateController import AudioRateController
+from core.handle.conversationExitHandle import finish_conversation_exit
 
 TAG = __name__
 # 音频帧时长（毫秒）
@@ -50,6 +51,8 @@ async def sendAudioMessage(conn: "ConnectionHandler", sentenceType, audios, text
     # 通话需要维持speaking状态
     if not conn.calling and sentenceType == SentenceType.LAST:
         await send_tts_message(conn, "stop", None)
+        if await finish_conversation_exit(conn):
+            return
         if conn.close_after_chat:
             await conn.close()
 

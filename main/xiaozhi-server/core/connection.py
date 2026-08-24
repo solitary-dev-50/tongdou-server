@@ -173,6 +173,11 @@ class ConnectionHandler:
 
         # 是否在聊天结束后关闭连接
         self.close_after_chat = False
+        # 正常退出一旦开始只能向前推进，listen start 不得把它重新打开
+        self.conversation_exit_pending = False
+        self.conversation_exit_reason = None
+        self.conversation_goodbye_sent = False
+        self.conversation_active = False
         self.load_function_plugin = False
         self.intent_type = "nointent"
 
@@ -1408,7 +1413,11 @@ class ConnectionHandler:
                 self.audio_buffer.clear()
 
             # 取消超时任务
-            if self.timeout_task and not self.timeout_task.done():
+            if (
+                    self.timeout_task
+                    and not self.timeout_task.done()
+                    and self.timeout_task is not asyncio.current_task()
+            ):
                 self.timeout_task.cancel()
                 try:
                     await self.timeout_task
@@ -1531,9 +1540,23 @@ class ConnectionHandler:
         self.client_voice_window.clear()
         self.last_is_voice = False
         self.vad_last_voice_time = 0.0
+        for attr in (
+            "_vad_state",
+            "_vad_context",
+            "_vad_level_log_count",
+            "_vad_level_log_max_mean_abs",
+            "_vad_level_log_max_peak",
+        ):
+            if hasattr(self, attr):
+                delattr(self, attr)
 
         # Clear ASR buffers
         self.asr_audio.clear()
+        while True:
+            try:
+                self.asr_audio_queue.get_nowait()
+            except queue.Empty:
+                break
 
         self.logger.bind(tag=TAG).debug("All audio states reset.")
 
@@ -1562,14 +1585,23 @@ class ConnectionHandler:
                     if current_time - last_activity_time > self.timeout_seconds * 1000:
                         if not self.stop_event.is_set():
                             self.logger.bind(tag=TAG).info("连接超时，准备关闭")
-                            # 设置停止事件，防止重复处理
-                            self.stop_event.set()
-                            # 使用 try-except 包装关闭操作，确保不会因为异常而阻塞
                             try:
-                                await self.close(self.websocket)
+                                if self.conversation_active:
+                                    from core.handle.conversationExitHandle import (
+                                        begin_conversation_exit,
+                                    )
+
+                                    await begin_conversation_exit(
+                                        self, "server_timeout"
+                                    )
+                                else:
+                                    self.logger.bind(tag=TAG).info(
+                                        "空闲连接超时，静默关闭"
+                                    )
+                                    await self.close(self.websocket)
                             except Exception as close_error:
                                 self.logger.bind(tag=TAG).error(
-                                    f"超时关闭连接时出错: {close_error}"
+                                    f"超时请求正常退出时出错: {close_error}"
                                 )
                         break
                 # 每10秒检查一次，避免过于频繁

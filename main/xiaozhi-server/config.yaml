@@ -96,6 +96,11 @@ xiaozhi:
     channels: 1
     frame_duration: 60
 
+# 铜豆当前语言资源包。局域网部署时，base_url 必须写设备能访问的电脑地址。
+tongdou_locale_resources:
+  base_url: http://你的ip或者域名:8003/tongdou/resources
+  directory: config/assets/tongdou_locale_packs
+
 # 模块测试配置
 module_test:
   test_sentences:

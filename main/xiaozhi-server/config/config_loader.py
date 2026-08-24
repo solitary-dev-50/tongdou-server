@@ -54,12 +54,30 @@ def load_config():
     else:
         # 合并配置
         config = merge_configs(default_config, custom_config)
+    locale_resources = custom_config.get("tongdou_locale_resources")
+    if locale_resources:
+        config["tongdou_locale_resources"] = locale_resources
+    attach_tongdou_locale_resources(config)
     # 初始化目录
     ensure_directories(config)
 
     # 缓存配置
     cache_manager.set(CacheType.CONFIG, "main_config", config)
     return config
+
+
+def attach_tongdou_locale_resources(config):
+    """把本机部署地址放进设备 hello，不让固件猜测 HTTP 端口。"""
+    resource_config = config.get("tongdou_locale_resources", {})
+    base_url = str(resource_config.get("base_url", "")).rstrip("/")
+    if not base_url or "你" in base_url:
+        return
+
+    hello_config = config.setdefault("xiaozhi", {})
+    hello_config["locale_resources"] = {
+        "base_url": base_url,
+        "format_version": 1,
+    }
 
 
 async def get_config_from_api_async(config):

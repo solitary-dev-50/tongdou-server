@@ -18,6 +18,10 @@ services:
     volumes:
       - ./data:/opt/xiaozhi-esp32-server/data
       - ./core/providers/asr/xunfei_stream.py:/opt/xiaozhi-esp32-server/core/providers/asr/xunfei_stream.py:ro
+      - ./core/http_server.py:/opt/xiaozhi-esp32-server/core/http_server.py:ro
+      - ./core/api/locale_resource_handler.py:/opt/xiaozhi-esp32-server/core/api/locale_resource_handler.py:ro
+      - ./config/config_loader.py:/opt/xiaozhi-esp32-server/config/config_loader.py:ro
+      - ./config/assets/tongdou_locale_packs:/opt/xiaozhi-esp32-server/config/assets/tongdou_locale_packs:ro
 
   xiaozhi-esp32-server-web:
     image: xiaozhi-esp32-server-web:local-login-captcha-off

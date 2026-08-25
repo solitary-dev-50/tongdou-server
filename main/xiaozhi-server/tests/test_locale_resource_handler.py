@@ -14,12 +14,13 @@ from core.api.locale_resource_handler import (
 )
 
 
-def build_test_pack(locale: str) -> bytes:
+def build_test_pack(locale: str, file_names=None) -> bytes:
+    file_names = set(REQUIRED_FILES if file_names is None else file_names)
     payload = bytearray()
     entries = bytearray()
-    payload_offset = PACK_HEADER.size + len(REQUIRED_FILES) * PACK_ENTRY.size
+    payload_offset = PACK_HEADER.size + len(file_names) * PACK_ENTRY.size
     next_offset = payload_offset
-    for name in sorted(REQUIRED_FILES):
+    for name in sorted(file_names):
         data = b"OggS-test-OpusHead-" + name.encode("ascii")
         name_bytes = name.encode("ascii")
         entries.extend(
@@ -36,7 +37,7 @@ def build_test_pack(locale: str) -> bytes:
         PACK_MAGIC,
         1,
         locale_bytes + b"\0" * (8 - len(locale_bytes)),
-        len(REQUIRED_FILES),
+        len(file_names),
         7,
         PACK_HEADER.size,
         payload_offset,
@@ -79,6 +80,17 @@ class LocaleResourceHandlerTest(unittest.TestCase):
         path.write_bytes(pack)
 
         with self.assertRaisesRegex(LocalePackError, "locale_pack_hash_mismatch"):
+            self.handler.inspect_pack("ru-RU")
+
+    def test_pack_without_offline_notice_is_rejected(self):
+        path = self.resource_directory / "ru-RU.bin"
+        path.write_bytes(
+            build_test_pack("ru-RU", REQUIRED_FILES - {"offline_notice.ogg"})
+        )
+
+        with self.assertRaisesRegex(
+            LocalePackError, "locale_pack_required_file_missing"
+        ):
             self.handler.inspect_pack("ru-RU")
 
     def test_unsupported_locale_is_not_resolved(self):

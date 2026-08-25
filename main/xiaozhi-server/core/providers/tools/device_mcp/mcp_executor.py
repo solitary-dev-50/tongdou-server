@@ -6,6 +6,10 @@ if TYPE_CHECKING:
     from core.connection import ConnectionHandler
 from ..base import ToolType, ToolDefinition, ToolExecutor
 from plugins_func.register import Action, ActionResponse
+from core.reminder.bitmap_renderer import (
+    ReminderBitmapError,
+    render_reminder_bitmap_base64,
+)
 from .mcp_handler import call_mcp_tool
 
 
@@ -35,7 +39,22 @@ class DeviceMCPExecutor(ToolExecutor):
             # 转换参数为JSON字符串
             import json
 
-            args_str = json.dumps(arguments) if arguments else "{}"
+            prepared_arguments = dict(arguments or {})
+            original_name = conn.mcp_client.name_mapping.get(tool_name, tool_name)
+            if original_name in ("tongdou.reminder.create", "create_reminder"):
+                reminder_text = str(prepared_arguments.get("text") or "")
+                try:
+                    prepared_arguments["displayBitmapBase64"] = (
+                        render_reminder_bitmap_base64(reminder_text)
+                    )
+                except ReminderBitmapError as error:
+                    conn.logger.error(f"提醒正文位图生成失败: {error}")
+                    return ActionResponse(
+                        action=Action.ERROR,
+                        response="提醒正文暂时无法生成，请稍后再试。",
+                    )
+
+            args_str = json.dumps(prepared_arguments) if prepared_arguments else "{}"
 
             # 调用设备端MCP工具
             result = await call_mcp_tool(conn, conn.mcp_client, tool_name, args_str)

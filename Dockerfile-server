@@ -1,6 +1,11 @@
 # 生产镜像，仅包含应用代码
 FROM ghcr.io/xinnan-tech/xiaozhi-esp32-server:server-base
 
+RUN apt-get -o Acquire::Retries=5 update \
+    && apt-get install -y --no-install-recommends fonts-noto-core fonts-noto-cjk \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir Pillow==12.1.1
+
 COPY main/xiaozhi-server .
 
 # 启动应用

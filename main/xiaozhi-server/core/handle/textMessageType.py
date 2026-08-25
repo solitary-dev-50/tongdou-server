@@ -11,3 +11,4 @@ class TextMessageType(Enum):
     SERVER = "server"
     PING = "ping"
     GOODBYE = "goodbye"
+    TONGDOU_REMINDER = "tongdou_reminder"

@@ -47,6 +47,13 @@ class DeviceMCPExecutor(ToolExecutor):
                     prepared_arguments["displayBitmapBase64"] = (
                         render_reminder_bitmap_base64(reminder_text)
                     )
+                    if "advanceSeconds" in prepared_arguments:
+                        advance_text = str(
+                            prepared_arguments.get("advanceText") or reminder_text
+                        )
+                        prepared_arguments["advanceDisplayBitmapBase64"] = (
+                            render_reminder_bitmap_base64(advance_text)
+                        )
                 except ReminderBitmapError as error:
                     conn.logger.error(f"提醒正文位图生成失败: {error}")
                     return ActionResponse(

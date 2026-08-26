@@ -40,6 +40,10 @@ from core.providers.tts.dto.dto import ContentType, TTSMessageDTO, SentenceType
 from config.logger import setup_logging, build_module_string, create_connection_logger
 from config.manage_api_client import DeviceNotFoundException, DeviceBindException, generate_and_save_chat_title
 from core.utils.prompt_manager import PromptManager
+from core.personality.policy import (
+    personality_mode_from_config,
+    review_personality_reply,
+)
 from core.utils.voiceprint_provider import VoiceprintProvider
 from core.utils.util import get_system_error_response
 from core.utils import textUtils
@@ -510,7 +514,9 @@ class ConnectionHandler:
             if self.config.get("prompt") is not None:
                 user_prompt = self.config["prompt"]
                 # 使用快速提示词进行初始化
-                prompt = self.prompt_manager.get_quick_prompt(user_prompt)
+                prompt = self.prompt_manager.get_quick_prompt(
+                    user_prompt, self.device_id
+                )
                 self.change_system_prompt(prompt)
                 self.logger.bind(tag=TAG).info(
                     f"快速初始化组件: prompt成功 {prompt[:50]}..."
@@ -551,7 +557,7 @@ class ConnectionHandler:
             self.config["prompt"],
             self.device_id,
             self.client_ip,
-            emoji_enabled=(self.features or {}).get("emoji", True),
+            emoji_enabled=(self.features or {}).get("emoji", False),
         )
         if enhanced_prompt:
             self.change_system_prompt(enhanced_prompt)
@@ -921,6 +927,33 @@ class ConnectionHandler:
         # 更新系统prompt至上下文
         self.dialogue.update_system_message(self.prompt)
 
+    def _audit_personality_reply(
+        self,
+        text: str,
+        source: str,
+        tool_succeeded: bool | None = None,
+    ):
+        """记录口吻越界证据，不阻塞或改写已经进入流式语音队列的文本。"""
+        review = review_personality_reply(
+            text,
+            tool_succeeded=tool_succeeded,
+        )
+        personality_mode = personality_mode_from_config(self.config)
+        if review.ok:
+            self.logger.bind(tag=TAG).debug(
+                "人格口吻检查通过: "
+                f"source={source}, personality_mode={personality_mode}, "
+                f"text_length={review.text_length}"
+            )
+            return
+
+        self.logger.bind(tag=TAG).warning(
+            "人格口吻检查未通过: "
+            f"source={source}, personality_mode={personality_mode}, "
+            f"violations={','.join(review.violations)}, "
+            f"text_length={review.text_length}"
+        )
+
     def start_voice_timeline(self, sentence_id):
         """为当前一轮回复建立统一的耗时基准。"""
         self.voice_timeline_sentence_id = sentence_id
@@ -1188,6 +1221,9 @@ class ConnectionHandler:
                                     )
                             # 写入对话历史
                             da_response = self._clean_response_garbage(da_response)
+                            self._audit_personality_reply(
+                                da_response, "direct_answer"
+                            )
                             self.tts.store_tts_text(current_sentence_id, da_response)
                             self.dialogue.put(Message(role="assistant", content=da_response))
 
@@ -1267,6 +1303,7 @@ class ConnectionHandler:
         # 存储对话内容
         if len(response_message) > 0:
             text_buff = "".join(response_message)
+            self._audit_personality_reply(text_buff, "normal_reply")
             self.tts.store_tts_text(current_sentence_id, text_buff)
             self.dialogue.put(Message(role="assistant", content=text_buff))
 
@@ -1298,6 +1335,11 @@ class ConnectionHandler:
                 Action.ERROR,
             ]:
                 text = result.response if result.response else result.result
+                self._audit_personality_reply(
+                    text,
+                    "tool_result",
+                    tool_succeeded=result.action == Action.RESPONSE,
+                )
                 if streamed_text and text in streamed_text:
                     self.logger.bind(tag=TAG).debug(
                         f"Skipping duplicate TTS for tool {tool_call_data['name']}, already streamed"

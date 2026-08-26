@@ -10,6 +10,10 @@ if TYPE_CHECKING:
     from core.connection import ConnectionHandler
 from config.logger import setup_logging
 from jinja2 import Template
+from core.personality.policy import (
+    build_personality_prompt,
+    personality_mode_from_config,
+)
 
 TAG = __name__
 
@@ -104,26 +108,39 @@ class PromptManager:
 
     def get_quick_prompt(self, user_prompt: str, device_id: str = None) -> str:
         """快速获取系统提示词（使用用户配置）"""
-        device_cache_key = f"device_prompt:{device_id}"
-        cached_device_prompt = self.cache_manager.get(
-            self.CacheType.DEVICE_PROMPT, device_cache_key
+        personality_mode = personality_mode_from_config(self.config)
+        device_cache_key = self._device_prompt_cache_key(
+            device_id, personality_mode
         )
-        if cached_device_prompt is not None:
-            self.logger.bind(tag=TAG).debug(f"使用设备 {device_id} 的缓存提示词")
-            return cached_device_prompt
-        else:
+        if device_cache_key:
+            cached_device_prompt = self.cache_manager.get(
+                self.CacheType.DEVICE_PROMPT, device_cache_key
+            )
+            if cached_device_prompt is not None:
+                self.logger.bind(tag=TAG).debug(
+                    f"使用设备 {device_id} 的缓存提示词，"
+                    f"personality_mode={personality_mode}"
+                )
+                return cached_device_prompt
             self.logger.bind(tag=TAG).debug(
-                f"设备 {device_id} 无缓存提示词，使用传入的提示词"
+                f"设备 {device_id} 无缓存提示词，"
+                f"personality_mode={personality_mode}"
             )
 
+        prompt = build_personality_prompt(user_prompt, personality_mode)
+
         # 使用传入的提示词并缓存（如果有设备ID）
-        if device_id:
-            device_cache_key = f"device_prompt:{device_id}"
-            self.cache_manager.set(self.CacheType.DEVICE_PROMPT, device_cache_key, user_prompt)
+        if device_cache_key:
+            self.cache_manager.set(
+                self.CacheType.DEVICE_PROMPT, device_cache_key, prompt
+            )
             self.logger.bind(tag=TAG).debug(f"设备 {device_id} 的提示词已缓存")
 
-        self.logger.bind(tag=TAG).info(f"使用快速提示词: {user_prompt[:50]}...")
-        return user_prompt
+        self.logger.bind(tag=TAG).info(
+            f"使用快速提示词: personality_mode={personality_mode}, "
+            f"prompt={prompt[:50]}..."
+        )
+        return prompt
 
     def _get_current_time_info(self) -> tuple:
         """获取当前时间信息"""
@@ -227,8 +244,12 @@ class PromptManager:
         self, user_prompt: str, device_id: str, client_ip: str = None, *args, **kwargs
     ) -> str:
         """构建增强的系统提示词"""
+        personality_mode = personality_mode_from_config(self.config)
+        personality_prompt = build_personality_prompt(
+            user_prompt, personality_mode
+        )
         if not self.base_prompt_template:
-            return user_prompt
+            return personality_prompt
 
         try:
             # 获取最新的时间信息（不缓存）
@@ -263,7 +284,7 @@ class PromptManager:
             # 替换模板变量
             template = Template(self.base_prompt_template)
             enhanced_prompt = template.render(
-                base_prompt=user_prompt,
+                base_prompt=personality_prompt,
                 current_time="{{current_time}}",
                 today_date=today_date,
                 today_weekday=today_weekday,
@@ -278,15 +299,27 @@ class PromptManager:
                 *args,
                 **kwargs,
             )
-            device_cache_key = f"device_prompt:{device_id}"
-            self.cache_manager.set(
-                self.CacheType.DEVICE_PROMPT, device_cache_key, enhanced_prompt
+            device_cache_key = self._device_prompt_cache_key(
+                device_id, personality_mode
             )
+            if device_cache_key:
+                self.cache_manager.set(
+                    self.CacheType.DEVICE_PROMPT, device_cache_key, enhanced_prompt
+                )
             self.logger.bind(tag=TAG).info(
-                f"构建增强提示词成功，长度: {len(enhanced_prompt)}"
+                f"构建增强提示词成功，长度: {len(enhanced_prompt)}, "
+                f"personality_mode={personality_mode}"
             )
             return enhanced_prompt
 
         except Exception as e:
             self.logger.bind(tag=TAG).error(f"构建增强提示词失败: {e}")
-            return user_prompt
+            return personality_prompt
+
+    @staticmethod
+    def _device_prompt_cache_key(
+        device_id: str, personality_mode: str
+    ) -> str | None:
+        if not device_id:
+            return None
+        return f"device_prompt:{device_id}:personality:{personality_mode}"

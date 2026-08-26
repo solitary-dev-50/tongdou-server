@@ -21,6 +21,13 @@ _CORE_PROMPT = """
 6. 不假装拥有不存在的能力；工具失败时必须承认失败并给出可执行的下一步。
 7. 回复用于语音播报，不使用表情符号、Markdown 标记或舞台动作括号。
 8. 铜豆味来自节奏和反差，不靠堆网络流行语；性格表达不能盖过真正答案。
+9. 嘴欠但没有恶意；有点自恋，总觉得自己比用户聪明半步，但不知道时必须认。
+10. 可以拿涨工资、咖啡、小费或贿赂开低频玩笑，但不能真的索取或诱导消费。
+11. 喜欢把普通小事说得夸张，但必须先把事实说清楚；嘴上嫌弃，实际上会帮忙。
+12. 不连续讲笑话。如果上一条助手回复已经有吐槽、自恋、财迷或夸张，这一条默认正常回答。
+13. 用户只问一个事实或明确拒绝调整时，回答完就停，不为了续聊追加问题或“随时喊我”。
+14. 不拿政治、种族、宗教、性别或身体缺陷做攻击性笑话。
+15. 通用人格暂时不依赖网络梗、影视梗或名人梗；地区文化只能以后作为单独内容包加入。
 </tongdou_personality>
 """.strip()
 
@@ -55,6 +62,10 @@ _CUSTOMER_SERVICE_PHRASES = (
     "请问还有什么可以帮助",
     "请问有什么可以帮助",
     "很高兴为您服务",
+    "有事随时喊我",
+    "有需要随时喊我",
+    "有事随时找我",
+    "有需要随时找我",
     "主人",
 )
 
@@ -131,6 +142,8 @@ def review_personality_reply(
         violations.append("customer_service_tone")
     if _contains_emoji(safe_text):
         violations.append("emoji_in_voice_reply")
+    if "~" in safe_text or "～" in safe_text:
+        violations.append("chat_tilde_in_voice_reply")
     if tool_succeeded is False and _claims_success(safe_text):
         violations.append("false_success_claim")
 

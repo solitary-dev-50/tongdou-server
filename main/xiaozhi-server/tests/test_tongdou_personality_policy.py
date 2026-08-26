@@ -74,6 +74,23 @@ class TongDouPersonalityPromptTest(unittest.TestCase):
         self.assertIn("工具失败时必须承认失败", prompt)
         self.assertIn("不使用表情符号", prompt)
 
+    def test_cross_cultural_character_is_in_every_mode(self):
+        for mode in ("gentle", "balanced", "dramatic"):
+            with self.subTest(mode=mode):
+                prompt = build_personality_prompt("", mode)
+                self.assertIn("嘴欠但没有恶意", prompt)
+                self.assertIn("有点自恋", prompt)
+                self.assertIn("涨工资、咖啡、小费或贿赂", prompt)
+                self.assertIn("不连续讲笑话", prompt)
+                self.assertIn("不知道时必须认", prompt)
+                self.assertIn("政治、种族、宗教、性别或身体缺陷", prompt)
+                self.assertIn("网络梗、影视梗或名人梗", prompt)
+
+    def test_fact_answer_must_stop_without_forced_follow_up(self):
+        prompt = build_personality_prompt("", "balanced")
+        self.assertIn("回答完就停", prompt)
+        self.assertIn("不为了续聊追加问题", prompt)
+
     def test_prompt_cache_is_separated_by_personality_mode(self):
         manager = PromptManager.__new__(PromptManager)
         manager.config = {"tongdou_personality_mode": "gentle"}
@@ -132,6 +149,16 @@ class TongDouPersonalityReplyReviewTest(unittest.TestCase):
         review = review_personality_reply("😏 到点了，别装没听见。")
         self.assertFalse(review.ok)
         self.assertIn("emoji_in_voice_reply", review.violations)
+
+    def test_generic_assistant_closing_is_rejected(self):
+        review = review_personality_reply("好，那就这样。有事随时喊我。")
+        self.assertFalse(review.ok)
+        self.assertIn("customer_service_tone", review.violations)
+
+    def test_chat_tilde_is_rejected_for_voice(self):
+        review = review_personality_reply("那就保持满格音量~")
+        self.assertFalse(review.ok)
+        self.assertIn("chat_tilde_in_voice_reply", review.violations)
 
     def test_failed_tool_cannot_claim_success(self):
         review = review_personality_reply(

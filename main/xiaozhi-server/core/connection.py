@@ -940,7 +940,7 @@ class ConnectionHandler:
         )
         personality_mode = personality_mode_from_config(self.config)
         if review.ok:
-            self.logger.bind(tag=TAG).debug(
+            self.logger.bind(tag=TAG).info(
                 "人格口吻检查通过: "
                 f"source={source}, personality_mode={personality_mode}, "
                 f"text_length={review.text_length}"

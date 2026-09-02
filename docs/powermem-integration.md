@@ -5,7 +5,8 @@
 [PowerMem](https://www.powermem.ai/) 是由 OceanBase 开源的 Agent 记忆组件，通过本地 LLM 进行记忆总结和智能检索，为 AI 代理提供高效的记忆管理功能。
 
 费用说明：PowerMem 本身开源免费，实际费用取决于您选择的 LLM 和数据库：
-- 使用 SQLite + 免费 LLM（如智谱 glm-4-flash）= **完全免费**
+- 使用 SQLite + 智谱 glm-4.7-flash + embedding-3 = **近零成本**
+- PowerMem 和 SQLite 本身免费；embedding-3 按智谱实际价格计费
 - 使用云端 LLM 或云端数据库 = 按对应服务收费
 
 > 💡 **最佳性能提示**：PowerMem 配合 OceanBase 使用可实现最大性能释放，SQLite 仅建议在资源不足的情况下使用。
@@ -20,7 +21,7 @@
 - **用户画像**：通过 `UserMemory` 自动提取用户信息（姓名、职业、兴趣等），持续更新用户画像
 - **智能遗忘**：基于艾宾浩斯遗忘曲线，自动"遗忘"过时噪声信息
 - **多种存储后端**：支持 OceanBase（推荐，最佳性能）、SeekDB（推荐，AI应用存储一体）、PostgreSQL、SQLite（轻量备选）
-- **多种 LLM 支持**：通义千问、智谱（glm-4-flash 免费）、OpenAI 等
+- **多种 LLM 支持**：通义千问、智谱（glm-4.7-flash 免费）、OpenAI 等
 - **智能检索**：基于向量搜索的语义检索能力
 - **私有部署**：完全支持本地私有化部署
 - **异步操作**：高效的异步记忆管理
@@ -138,9 +139,9 @@ Memory:
       config: {}
 ```
 
-### 使用智谱免费 LLM（完全免费方案）
+### 使用智谱免费 LLM（近零成本方案）
 
-智谱提供免费的 glm-4-flash 模型，配合 SQLite 可实现完全免费使用：
+智谱提供免费的 glm-4.7-flash 模型。PowerMem 和 SQLite 本身免费，embedding-3 按智谱实际价格计费，个人使用通常成本很低：
 
 1. 访问 [智谱AI开放平台](https://bigmodel.cn/) 注册账号
 2. 在 [API Keys](https://bigmodel.cn/usercenter/proj-mgmt/apikeys) 页面获取 API 密钥
@@ -155,14 +156,15 @@ Memory:
       provider: openai  # 使用 openai 兼容模式
       config:
         api_key: xxxxxxxxxxxxxxxx.xxxxxxxxxxxxxxxx
-        model: glm-4-flash
+        model: glm-4.7-flash
         openai_base_url: https://open.bigmodel.cn/api/paas/v4/
     embedder:
       provider: openai
       config:
         api_key: xxxxxxxxxxxxxxxx.xxxxxxxxxxxxxxxx
         model: embedding-3
-        openai_base_url: https://open.bigmodel.cn/api/paas/v4/
+        OPENAI_EMBEDDING_BASE_URL: https://open.bigmodel.cn/api/paas/v4/
+        embedding_dims: 2048
     vector_store:
       provider: sqlite
       config: {}
@@ -342,4 +344,3 @@ python -c "from powermem import UserMemory; print('UserMemory 导入成功')"
 - [OceanBase GitHub](https://github.com/oceanbase/oceanbase)
 - [SeekDB GitHub](https://github.com/oceanbase/seekdb)（AI原生搜索数据库）
 - [阿里云百炼平台](https://bailian.console.aliyun.com/)
-

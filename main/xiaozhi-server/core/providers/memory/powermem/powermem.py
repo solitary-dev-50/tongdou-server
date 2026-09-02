@@ -98,7 +98,20 @@ class MemoryProvider(MemoryProviderBase):
 
             # Configure embedder
             if "embedder" in config:
-                powermem_config["embedder"] = config["embedder"]
+                embedder = config["embedder"]
+                embedder_config = dict(embedder.get("config", {}))
+                # PowerMem 0.5.3 的 OpenAI 向量配置只接受这个兼容字段名。
+                if (
+                    embedder.get("provider") == "openai"
+                    and "openai_base_url" in embedder_config
+                ):
+                    embedder_config["OPENAI_EMBEDDING_BASE_URL"] = (
+                        embedder_config.pop("openai_base_url")
+                    )
+                powermem_config["embedder"] = {
+                    **embedder,
+                    "config": embedder_config,
+                }
             else:
                 embedder_config = {}
                 if config.get("embedding_api_key"):
@@ -116,7 +129,8 @@ class MemoryProvider(MemoryProviderBase):
                 else:
                     base_url = config.get("embedding_openai_base_url") or config.get("embedding_base_url")
                     if base_url:
-                        embedder_config["openai_base_url"] = base_url
+                        # PowerMem 0.5.3 使用大写兼容字段读取自定义向量接口地址。
+                        embedder_config["OPENAI_EMBEDDING_BASE_URL"] = base_url
 
                 powermem_config["embedder"] = {
                     "provider": embedding_provider,
@@ -379,4 +393,3 @@ class MemoryProvider(MemoryProviderBase):
             logger.bind(tag=TAG).error(f"Failed to fetch user profile from SDK: {str(e)}")
             logger.bind(tag=TAG).debug(f"Detailed error: {traceback.format_exc()}")
             return ""
-

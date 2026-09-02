@@ -304,8 +304,8 @@ Memory:
   powermem:
     # PowerMem是OceanBase开源的agent记忆组件，通过本地LLM进行记忆总结
     # 费用说明：PowerMem本身免费，实际费用取决于所选LLM和数据库
-    # - 使用sqlite + 免费LLM(如glm-4-flash) = 完全免费
-    # - 使用云端LLM或云端数据库 = 按对应服务收费
+    # - 使用sqlite + glm-4.7-flash + embedding-3 = 近零成本
+    # - PowerMem和sqlite免费，embedding-3按智谱实际价格计费
     # GitHub: https://github.com/oceanbase/powermem
     # 官网: https://www.powermem.ai/
     # 使用示例: https://github.com/oceanbase/powermem/tree/main/examples
@@ -322,16 +322,16 @@ Memory:
       provider: openai  # 可选: qwen, openai, zhipu 等
       config:
         api_key: 你的LLM API密钥
-        model: qwen-plus
-        # openai_base_url: https://api.openai.com/v1  # 可选，自定义服务地址
+        model: glm-4.7-flash
+        openai_base_url: https://open.bigmodel.cn/api/paas/v4/
     # ========== Embedding 配置 ==========
     embedder:
       provider: openai  # 可选: qwen, openai 等
       config:
         api_key: 你的嵌入模型API密钥
-        model: text-embedding-v4
-        openai_base_url: https://dashscope.aliyuncs.com/compatible-mode/v1
-        # embedding_dims: 1024  # 向量维度，非1536时需配置
+        model: embedding-3
+        OPENAI_EMBEDDING_BASE_URL: https://open.bigmodel.cn/api/paas/v4/
+        embedding_dims: 2048
 
     # ========== Database 配置 ==========
     # oceanbase(推荐,最佳性能), seekdb(推荐,AI应用存储一体), postgres, sqlite(轻量备选)

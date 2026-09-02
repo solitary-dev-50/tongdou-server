@@ -46,6 +46,19 @@ class TongDouReminderAnnouncementTest(unittest.TestCase):
             "Напоминание: позвонить маме",
         )
 
+    def test_proactive_event_uses_personality_prompt_without_normal_body_rule(self):
+        llm = FakeLlm("Time to stretch a little; your desk is not a permanent habitat.")
+        result = generate_reminder_announcement(
+            llm, "session", "", "en-GB", "desk_activity_break"
+        )
+        self.assertEqual(result, "Time to stretch a little; your desk is not a permanent habitat.")
+
+    def test_unknown_proactive_event_keeps_normal_reminder_rules(self):
+        result = generate_reminder_announcement(
+            FakeLlm("A rewritten reminder"), "session", "drink water", "en-GB", "unknown"
+        )
+        self.assertEqual(result, "Reminder: drink water")
+
 
 class TongDouReminderBitmapTest(unittest.TestCase):
     @classmethod

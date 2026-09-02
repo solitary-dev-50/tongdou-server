@@ -93,7 +93,7 @@ GET_NEWS_FROM_NEWSNOW_FUNCTION_DESC = {
             "properties": {
                 "source": {
                     "type": "string",
-                    "description": f"新闻源的标准中文名称，例如{example_sources_str}等。可选参数，如果不提供则使用默认新闻源",
+                    "description": f"新闻源的标准中文名称，例如{example_sources_str}等。可选参数；不提供时，从当前用户配置的新闻源中随机选择一个。",
                 },
                 "detail": {
                     "type": "boolean",
@@ -168,15 +168,12 @@ def fetch_news_detail(url):
 )
 def get_news_from_newsnow(
     conn: "ConnectionHandler",
-    source: str = "澎湃新闻",
+    source: str = "",
     detail: bool = False,
     lang: str = "zh_CN",
 ):
     """获取新闻并随机选择一条进行播报，或获取上一条新闻的详细内容"""
     try:
-        # 获取当前配置的新闻源
-        news_sources = get_news_sources_from_config(conn)
-
         # 如果detail为True，获取上一条新闻的详细内容
         detail = str(detail).lower() == "true"
         if detail:
@@ -231,12 +228,25 @@ def get_news_from_newsnow(
         # 将中文名称转换为英文ID
         english_source_id = None
 
-        # 检查输入的中文名称是否在配置的新闻源中
-        news_sources_list = [
-            name.strip() for name in news_sources.split(";") if name.strip()
+        # 只接受当前用户实际配置且能映射到 NewsNow 的新闻源。
+        configured_sources = [
+            name.strip()
+            for name in _get_newsnow_config(conn).split(";")
+            if name.strip() in CHANNEL_MAP
         ]
-        if source in news_sources_list:
-            # 如果输入的中文名称在配置的新闻源中，在 CHANNEL_MAP 中查找对应的英文ID
+
+        # 未指定来源时，从用户配置的有效新闻源中随机选择；配置为空或全无效才使用兜底源。
+        if not source or not str(source).strip():
+            if configured_sources:
+                source = random.choice(configured_sources)
+            else:
+                logger.bind(tag=TAG).warning(
+                    "新闻源配置为空或全部无效，使用兜底源澎湃新闻"
+                )
+                source = "澎湃新闻"
+                english_source_id = CHANNEL_MAP[source]
+
+        if source in configured_sources:
             english_source_id = CHANNEL_MAP.get(source)
 
         # 如果找不到对应的英文ID，使用默认源

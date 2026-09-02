@@ -15,6 +15,7 @@ from core.reminder.announcement import generate_reminder_announcement
 
 TAG = __name__
 MAX_REMINDER_TEXT_BYTES = 95
+PROACTIVE_EVENTS = {"desk_activity_break", "drink_water"}
 
 
 class TongDouReminderTextMessageHandler(TextMessageHandler):
@@ -28,15 +29,18 @@ class TongDouReminderTextMessageHandler(TextMessageHandler):
         self, conn: "ConnectionHandler", msg_json: Dict[str, Any]
     ) -> None:
         reminder_id = msg_json.get("id")
-        text = msg_json.get("text")
+        text = msg_json.get("text") or ""
         locale = str(msg_json.get("locale") or "en-GB")
+        proactive_event = str(msg_json.get("proactive_event") or "").strip()
+        is_proactive = proactive_event in PROACTIVE_EVENTS
         if (
             not isinstance(reminder_id, int)
             or isinstance(reminder_id, bool)
             or reminder_id <= 0
             or not isinstance(text, str)
-            or not text.strip()
-            or len(text.strip().encode("utf-8")) > MAX_REMINDER_TEXT_BYTES
+            or (not is_proactive and not text.strip())
+            or (not is_proactive and len(text.strip().encode("utf-8")) > MAX_REMINDER_TEXT_BYTES)
+            or (proactive_event and not is_proactive)
         ):
             await self._send_status(conn, reminder_id, "failed", "invalid_reminder")
             return
@@ -65,6 +69,7 @@ class TongDouReminderTextMessageHandler(TextMessageHandler):
             sentence_id,
             text,
             locale,
+            proactive_event,
         )
 
     def _generate_and_queue(
@@ -74,10 +79,11 @@ class TongDouReminderTextMessageHandler(TextMessageHandler):
         sentence_id: str,
         text: str,
         locale: str,
+        proactive_event: str,
     ) -> None:
         try:
             announcement = generate_reminder_announcement(
-                conn.llm, conn.session_id, text, locale
+                conn.llm, conn.session_id, text, locale, proactive_event
             )
             if conn.sentence_id != sentence_id or conn.client_abort:
                 raise RuntimeError("reminder_superseded")

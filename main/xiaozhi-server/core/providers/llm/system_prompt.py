@@ -42,7 +42,7 @@ if you got tool as follow
             "properties": {{
                 "say_goodbye": {{
                     "type": "string",
-                    "description": "和用户友好结束对话的告别语",
+                    "description": "自然简短的告别语；不用波浪号，不加通用助手收尾",
                 }}
             }},
             "required": ["say_goodbye"],
@@ -56,7 +56,7 @@ you should respond with the following format:
 {{
     "name": "handle_exit_intent",
     "arguments": {{
-        "say_goodbye": "再见，祝您生活愉快！"
+        "say_goodbye": "好，我先退下了。"
     }}
 }}
 </tool_call>

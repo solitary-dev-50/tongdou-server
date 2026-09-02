@@ -3,11 +3,18 @@ from types import SimpleNamespace
 
 from core.personality.policy import (
     DEFAULT_PERSONALITY_MODE,
+    PersonalityVoiceStream,
+    build_personality_turn_prompt,
     build_personality_prompt,
     normalize_personality_mode,
+    personality_flair_cooldown_turns,
+    personality_flair_decision,
     personality_mode_from_config,
     review_personality_reply,
+    sanitize_personality_voice_text,
+    should_allow_personality_flair,
 )
+from core.utils.dialogue import Dialogue, Message
 from core.utils.prompt_manager import PromptManager
 
 
@@ -90,6 +97,53 @@ class TongDouPersonalityPromptTest(unittest.TestCase):
         prompt = build_personality_prompt("", "balanced")
         self.assertIn("回答完就停", prompt)
         self.assertIn("不为了续聊追加问题", prompt)
+
+    def test_turn_style_can_force_a_normal_non_playful_reply(self):
+        prompt = build_personality_turn_prompt("balanced", False)
+        self.assertIn('flair_allowed="false"', prompt)
+        self.assertIn("禁止吐槽、自恋、财迷、夸张", prompt)
+        self.assertIn("回答完成立即停", prompt)
+
+    def test_personality_flair_uses_mode_specific_cooldown(self):
+        self.assertEqual(personality_flair_cooldown_turns("gentle"), 3)
+        self.assertEqual(personality_flair_cooldown_turns("balanced"), 2)
+        self.assertEqual(personality_flair_cooldown_turns("dramatic"), 1)
+
+    def test_brief_acknowledgement_never_forces_personality_flair(self):
+        self.assertFalse(should_allow_personality_flair("不用了。", 0))
+        self.assertTrue(should_allow_personality_flair("你是谁？", 0))
+        self.assertFalse(should_allow_personality_flair("你吃饭了吗？", 2))
+        self.assertTrue(should_allow_personality_flair("讲个笑话", 2))
+
+    def test_user_playful_comparison_bypasses_cooldown(self):
+        cases = (
+            "那你觉得是你的头大还是我的头大？",
+            "我脸圆还是你脸圆？",
+            "我和你谁更聪明？",
+            "铜豆，你敢不敢跟我比一下？",
+        )
+        for query in cases:
+            with self.subTest(query=query):
+                allowed, reason = personality_flair_decision(query, 2)
+                self.assertTrue(allowed)
+                self.assertEqual(reason, "user_playful_banter")
+
+    def test_normal_questions_do_not_bypass_active_cooldown(self):
+        cases = (
+            "你的音量是多少？",
+            "你是不是已经设置好提醒了？",
+            "今天吃米饭还是吃面？",
+        )
+        for query in cases:
+            with self.subTest(query=query):
+                allowed, reason = personality_flair_decision(query, 2)
+                self.assertFalse(allowed)
+                self.assertEqual(reason, "cooldown_active")
+
+    def test_explicit_joke_request_has_a_distinct_reason(self):
+        allowed, reason = personality_flair_decision("我开玩笑的", 2)
+        self.assertTrue(allowed)
+        self.assertEqual(reason, "user_requested_playfulness")
 
     def test_prompt_cache_is_separated_by_personality_mode(self):
         manager = PromptManager.__new__(PromptManager)
@@ -174,12 +228,57 @@ class TongDouPersonalityReplyReviewTest(unittest.TestCase):
         )
         self.assertTrue(review.ok)
 
-    def test_long_reply_is_reported_without_rewriting_it(self):
+    def test_meaningful_long_reply_is_not_rejected_by_one_size_limit(self):
         text = "这句话有点长。" * 30
         review = review_personality_reply(text, max_length=20)
-        self.assertFalse(review.ok)
-        self.assertIn("reply_too_long", review.violations)
+        self.assertTrue(review.ok)
+        self.assertNotIn("reply_too_long", review.violations)
         self.assertEqual(review.text_length, len(text))
+
+    def test_voice_cleanup_removes_chat_format_and_generic_closing(self):
+        cleaned = sanitize_personality_voice_text(
+            "好嘞，那就保持这样。有事再喊我~"
+        )
+        self.assertEqual(cleaned, "好嘞，那就保持这样。")
+
+    def test_voice_cleanup_removes_emoji_without_changing_answer(self):
+        cleaned = sanitize_personality_voice_text("😏 现在音量是百分之百。")
+        self.assertEqual(cleaned, "现在音量是百分之百。")
+
+    def test_stream_cleanup_handles_fragmented_generic_closing(self):
+        stream = PersonalityVoiceStream()
+        emitted = []
+        emitted.extend(stream.feed("好嘞，那就保持这样。"))
+        emitted.extend(stream.feed("有事再"))
+        emitted.extend(stream.feed("喊我~", final=True))
+
+        self.assertEqual(emitted, ["好嘞，", "那就保持这样。"])
+        self.assertEqual(stream.spoken_text, "好嘞，那就保持这样。")
+
+    def test_stream_cleanup_keeps_comma_first_packet_latency(self):
+        stream = PersonalityVoiceStream()
+        emitted = stream.feed("先说结论，后面再解释")
+
+        self.assertEqual(emitted, ("先说结论，",))
+
+
+class DialogueRuntimeInstructionTest(unittest.TestCase):
+    def test_runtime_instruction_is_sent_but_not_saved_as_history(self):
+        dialogue = Dialogue()
+        dialogue.put(Message(role="system", content="基础规则"))
+        dialogue.put(Message(role="user", content="你是谁？"))
+
+        messages = dialogue.get_llm_dialogue_with_memory(
+            runtime_instruction="本轮正常回答"
+        )
+
+        self.assertEqual(messages[0], {"role": "system", "content": "基础规则"})
+        self.assertEqual(
+            messages[1],
+            {"role": "system", "content": "本轮正常回答"},
+        )
+        self.assertEqual(messages[2], {"role": "user", "content": "你是谁？"})
+        self.assertEqual(len(dialogue.dialogue), 2)
 
 
 if __name__ == "__main__":

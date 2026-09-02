@@ -41,8 +41,13 @@ from config.logger import setup_logging, build_module_string, create_connection_
 from config.manage_api_client import DeviceNotFoundException, DeviceBindException, generate_and_save_chat_title
 from core.utils.prompt_manager import PromptManager
 from core.personality.policy import (
+    PersonalityVoiceStream,
+    build_personality_turn_prompt,
+    personality_flair_cooldown_turns,
+    personality_flair_decision,
     personality_mode_from_config,
     review_personality_reply,
+    sanitize_personality_voice_text,
 )
 from core.utils.voiceprint_provider import VoiceprintProvider
 from core.utils.util import get_system_error_response
@@ -69,7 +74,7 @@ DIRECT_ANSWER_TOOL = {
             "properties": {
                 "response": {
                     "type": "string",
-                    "description": "你回复用户的完整内容",
+                    "description": "你回复用户的完整内容。不要用波浪号、通用助手收尾或无必要的反问",
                 },
             },
             "required": ["response"],
@@ -163,6 +168,8 @@ class ConnectionHandler:
 
         # llm相关变量
         self.dialogue = Dialogue()
+        self.personality_flair_cooldown = 0
+        self.personality_turn_prompt = ""
 
         # tts相关变量
         self.sentence_id = None
@@ -585,12 +592,12 @@ class ConnectionHandler:
 
         # 示例1：direct_answer（回复内容写在 response 参数里，无需递归）
         da_tc_id = "fewshot_da_001"
-        self.dialogue.put(Message(role="user", content="给我讲个故事吧", is_temporary=True))
+        self.dialogue.put(Message(role="user", content="你是谁？", is_temporary=True))
         self.dialogue.put(Message(
             role="assistant",
             tool_calls=[{
                 "id": da_tc_id,
-                "function": {"arguments": '{"response": "好呀，你想听什么类型的呀？童话、冒险还是搞笑的？选一个我给你开讲~"}', "name": "direct_answer"},
+                "function": {"arguments": '{"response": "我是铜豆，你桌面上的小搭子。嘴上偶尔嫌弃，真有事我会帮你。"}', "name": "direct_answer"},
                 "type": "function", "index": 0,
             }],
             is_temporary=True,
@@ -608,7 +615,7 @@ class ConnectionHandler:
                 role="assistant",
                 tool_calls=[{
                     "id": tc_id,
-                    "function": {"arguments": '{"say_goodbye": "再见，下次再聊~"}', "name": "handle_exit_intent"},
+                    "function": {"arguments": '{"say_goodbye": "好，我先退下了。"}', "name": "handle_exit_intent"},
                     "type": "function", "index": 0,
                 }],
                 is_temporary=True,
@@ -618,7 +625,7 @@ class ConnectionHandler:
                 content="退出意图已处理", is_temporary=True,
             ))
             self.dialogue.put(Message(
-                role="assistant", content="再见，下次再聊~", is_temporary=True,
+                role="assistant", content="好，我先退下了。", is_temporary=True,
             ))
 
         self.logger.bind(tag=TAG).debug("已注入工具调用 few-shot 示例")
@@ -933,7 +940,7 @@ class ConnectionHandler:
         source: str,
         tool_succeeded: bool | None = None,
     ):
-        """记录口吻越界证据，不阻塞或改写已经进入流式语音队列的文本。"""
+        """记录实际送入语音链路的最终文字。"""
         review = review_personality_reply(
             text,
             tool_succeeded=tool_succeeded,
@@ -945,13 +952,48 @@ class ConnectionHandler:
                 f"source={source}, personality_mode={personality_mode}, "
                 f"text_length={review.text_length}"
             )
-            return
+            return review
 
         self.logger.bind(tag=TAG).warning(
             "人格口吻检查未通过: "
             f"source={source}, personality_mode={personality_mode}, "
             f"violations={','.join(review.violations)}, "
             f"text_length={review.text_length}"
+        )
+        return review
+
+    def _prepare_personality_turn(self, query: str | None):
+        """由服务器明确安排本轮是否允许低频性格表达。"""
+        mode = personality_mode_from_config(self.config)
+        flair_allowed, flair_reason = personality_flair_decision(
+            query,
+            self.personality_flair_cooldown,
+        )
+
+        if flair_allowed:
+            self.personality_flair_cooldown = personality_flair_cooldown_turns(mode)
+        elif self.personality_flair_cooldown > 0:
+            self.personality_flair_cooldown -= 1
+
+        self.personality_turn_prompt = build_personality_turn_prompt(
+            mode,
+            flair_allowed,
+        )
+        self.logger.bind(tag=TAG).info(
+            "人格回合策略: "
+            f"personality_mode={mode}, flair_allowed={flair_allowed}, "
+            f"reason={flair_reason}, "
+            f"cooldown_remaining={self.personality_flair_cooldown}"
+        )
+
+    def _log_personality_cleanup(self, original: str, cleaned: str, source: str):
+        """记录进入喇叭前发生的确定性格式清理。"""
+        if str(original or "").strip() == str(cleaned or "").strip():
+            return
+        self.logger.bind(tag=TAG).info(
+            "人格播报已清理: "
+            f"source={source}, before_length={len(str(original or ''))}, "
+            f"after_length={len(str(cleaned or ''))}"
         )
 
     def start_voice_timeline(self, sentence_id):
@@ -988,6 +1030,8 @@ class ConnectionHandler:
 
         if query is not None:
             self.logger.bind(tag=TAG).info(f"大模型收到用户消息: {query}")
+        if depth == 0:
+            self._prepare_personality_turn(query)
 
         # 为最顶层时新建会话ID和发送FIRST请求
         if depth == 0:
@@ -1054,7 +1098,9 @@ class ConnectionHandler:
                 llm_responses = self.llm.response_with_functions(
                     self.session_id,
                     self.dialogue.get_llm_dialogue_with_memory(
-                        memory_str, self.config.get("voiceprint", {})
+                        memory_str,
+                        self.config.get("voiceprint", {}),
+                        self.personality_turn_prompt,
                     ),
                     functions=functions,
                 )
@@ -1062,7 +1108,9 @@ class ConnectionHandler:
                 llm_responses = self.llm.response(
                     self.session_id,
                     self.dialogue.get_llm_dialogue_with_memory(
-                        memory_str, self.config.get("voiceprint", {})
+                        memory_str,
+                        self.config.get("voiceprint", {}),
+                        self.personality_turn_prompt,
                     ),
                 )
         except Exception as e:
@@ -1075,6 +1123,7 @@ class ConnectionHandler:
         tool_calls_list = []  # 格式: [{"id": "", "name": "", "arguments": ""}]
         content_arguments = ""
         emotion_flag = True
+        response_voice_stream = PersonalityVoiceStream()
         try:
             for response in llm_responses:
                 if self.client_abort:
@@ -1113,14 +1162,19 @@ class ConnectionHandler:
                                     new_part = self._clean_response_garbage(new_part)
                                     if new_part:
                                         tc["_da_sent"] = safe_end
-                                        self.tts.tts_text_queue.put(
-                                            TTSMessageDTO(
-                                                sentence_id=current_sentence_id,
-                                                sentence_type=SentenceType.MIDDLE,
-                                                content_type=ContentType.TEXT,
-                                                content_detail=new_part,
-                                            )
+                                        da_voice_stream = tc.setdefault(
+                                            "_da_voice_stream",
+                                            PersonalityVoiceStream(),
                                         )
+                                        for voice_part in da_voice_stream.feed(new_part):
+                                            self.tts.tts_text_queue.put(
+                                                TTSMessageDTO(
+                                                    sentence_id=current_sentence_id,
+                                                    sentence_type=SentenceType.MIDDLE,
+                                                    content_type=ContentType.TEXT,
+                                                    content_detail=voice_part,
+                                                )
+                                            )
                 else:
                     content = response
 
@@ -1136,14 +1190,24 @@ class ConnectionHandler:
                 if content is not None and len(content) > 0:
                     if not tool_call_flag:
                         response_message.append(content)
-                        self.tts.tts_text_queue.put(
-                            TTSMessageDTO(
-                                sentence_id=current_sentence_id,
-                                sentence_type=SentenceType.MIDDLE,
-                                content_type=ContentType.TEXT,
-                                content_detail=content,
+                        for voice_part in response_voice_stream.feed(content):
+                            self.tts.tts_text_queue.put(
+                                TTSMessageDTO(
+                                    sentence_id=current_sentence_id,
+                                    sentence_type=SentenceType.MIDDLE,
+                                    content_type=ContentType.TEXT,
+                                    content_detail=voice_part,
+                                )
                             )
-                        )
+            for voice_part in response_voice_stream.feed("", final=True):
+                self.tts.tts_text_queue.put(
+                    TTSMessageDTO(
+                        sentence_id=current_sentence_id,
+                        sentence_type=SentenceType.MIDDLE,
+                        content_type=ContentType.TEXT,
+                        content_detail=voice_part,
+                    )
+                )
         except Exception as e:
             self.logger.bind(tag=TAG).error(f"LLM stream processing error: {e}")
             self.tts.tts_text_queue.put(
@@ -1205,27 +1269,58 @@ class ConnectionHandler:
                     for tc in direct_answer_calls:
                         da_response = self._extract_direct_answer_response(tc.get("arguments", "{}"))
                         if da_response:
+                            da_response = self._clean_response_garbage(da_response)
+                            da_voice_stream = tc.setdefault(
+                                "_da_voice_stream",
+                                PersonalityVoiceStream(),
+                            )
                             # 刷新流式缓冲区中未发送的部分
                             sent_len = tc.get("_da_sent", 0)
                             remaining = da_response[sent_len:]
                             if remaining:
                                 remaining = self._clean_response_garbage(remaining)
                                 if remaining:
-                                    self.tts.tts_text_queue.put(
-                                        TTSMessageDTO(
-                                            sentence_id=current_sentence_id,
-                                            sentence_type=SentenceType.MIDDLE,
-                                            content_type=ContentType.TEXT,
-                                            content_detail=remaining,
+                                    for voice_part in da_voice_stream.feed(remaining):
+                                        self.tts.tts_text_queue.put(
+                                            TTSMessageDTO(
+                                                sentence_id=current_sentence_id,
+                                                sentence_type=SentenceType.MIDDLE,
+                                                content_type=ContentType.TEXT,
+                                                content_detail=voice_part,
+                                            )
                                         )
+                            for voice_part in da_voice_stream.feed("", final=True):
+                                self.tts.tts_text_queue.put(
+                                    TTSMessageDTO(
+                                        sentence_id=current_sentence_id,
+                                        sentence_type=SentenceType.MIDDLE,
+                                        content_type=ContentType.TEXT,
+                                        content_detail=voice_part,
                                     )
-                            # 写入对话历史
-                            da_response = self._clean_response_garbage(da_response)
-                            self._audit_personality_reply(
-                                da_response, "direct_answer"
+                                )
+                            spoken_response = da_voice_stream.spoken_text
+                            if not spoken_response:
+                                spoken_response = "好。"
+                                self.tts.tts_text_queue.put(
+                                    TTSMessageDTO(
+                                        sentence_id=current_sentence_id,
+                                        sentence_type=SentenceType.MIDDLE,
+                                        content_type=ContentType.TEXT,
+                                        content_detail=spoken_response,
+                                    )
+                                )
+                            self._log_personality_cleanup(
+                                da_response,
+                                spoken_response,
+                                "direct_answer",
                             )
-                            self.tts.store_tts_text(current_sentence_id, da_response)
-                            self.dialogue.put(Message(role="assistant", content=da_response))
+                            self._audit_personality_reply(
+                                spoken_response, "direct_answer"
+                            )
+                            self.tts.store_tts_text(current_sentence_id, spoken_response)
+                            self.dialogue.put(
+                                Message(role="assistant", content=spoken_response)
+                            )
 
                     if not real_tool_calls:
                         if depth == 0:
@@ -1248,9 +1343,18 @@ class ConnectionHandler:
                 # LLM 流式阶段已播报过的文本
                 streamed_text = ""
                 if len(response_message) > 0:
-                    streamed_text = "".join(response_message)
-                    self.tts.store_tts_text(current_sentence_id, streamed_text)
-                    self.dialogue.put(Message(role="assistant", content=streamed_text))
+                    raw_streamed_text = "".join(response_message)
+                    streamed_text = response_voice_stream.spoken_text
+                    self._log_personality_cleanup(
+                        raw_streamed_text,
+                        streamed_text,
+                        "streamed_tool_prefix",
+                    )
+                    if streamed_text:
+                        self.tts.store_tts_text(current_sentence_id, streamed_text)
+                        self.dialogue.put(
+                            Message(role="assistant", content=streamed_text)
+                        )
                 response_message.clear()
 
                 # 收集所有工具调用的 Future
@@ -1302,7 +1406,23 @@ class ConnectionHandler:
 
         # 存储对话内容
         if len(response_message) > 0:
-            text_buff = "".join(response_message)
+            raw_text_buff = "".join(response_message)
+            text_buff = response_voice_stream.spoken_text
+            if not text_buff:
+                text_buff = "好。"
+                self.tts.tts_text_queue.put(
+                    TTSMessageDTO(
+                        sentence_id=current_sentence_id,
+                        sentence_type=SentenceType.MIDDLE,
+                        content_type=ContentType.TEXT,
+                        content_detail=text_buff,
+                    )
+                )
+            self._log_personality_cleanup(
+                raw_text_buff,
+                text_buff,
+                "normal_reply",
+            )
             self._audit_personality_reply(text_buff, "normal_reply")
             self.tts.store_tts_text(current_sentence_id, text_buff)
             self.dialogue.put(Message(role="assistant", content=text_buff))
@@ -1334,11 +1454,35 @@ class ConnectionHandler:
                 Action.NOTFOUND,
                 Action.ERROR,
             ]:
-                text = result.response if result.response else result.result
+                raw_text = result.response if result.response else result.result
+                tool_succeeded = result.action == Action.RESPONSE
+                raw_review = review_personality_reply(
+                    raw_text,
+                    tool_succeeded=tool_succeeded,
+                )
+                if "false_success_claim" in raw_review.violations:
+                    text = sanitize_personality_voice_text(result.result)
+                    if (
+                        not text
+                        or "false_success_claim"
+                        in review_personality_reply(
+                            text,
+                            tool_succeeded=False,
+                        ).violations
+                    ):
+                        text = "这次没办成。"
+                    self.logger.bind(tag=TAG).warning(
+                        "人格工具回复已回退: reason=false_success_claim"
+                    )
+                else:
+                    text = sanitize_personality_voice_text(raw_text)
+                if not text:
+                    text = "这次没有拿到可播报的结果。"
+                self._log_personality_cleanup(raw_text, text, "tool_result")
                 self._audit_personality_reply(
                     text,
                     "tool_result",
-                    tool_succeeded=result.action == Action.RESPONSE,
+                    tool_succeeded=tool_succeeded,
                 )
                 if streamed_text and text in streamed_text:
                     self.logger.bind(tag=TAG).debug(

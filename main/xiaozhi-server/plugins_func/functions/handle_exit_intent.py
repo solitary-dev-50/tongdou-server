@@ -19,7 +19,7 @@ handle_exit_intent_function_desc = {
             "properties": {
                 "say_goodbye": {
                     "type": "string",
-                    "description": "和用户友好结束对话的告别语",
+                    "description": "自然简短的告别语；不用波浪号，不加‘有事再喊我’等通用助手收尾",
                 }
             },
             "required": ["say_goodbye"],
@@ -35,7 +35,7 @@ def handle_exit_intent(conn: "ConnectionHandler", say_goodbye: str | None = None
     # 处理退出意图
     try:
         if say_goodbye is None:
-            say_goodbye = "再见，祝您生活愉快！"
+            say_goodbye = "好，我先退下了。"
         mark_conversation_exit(conn, "semantic_tool")
         logger.bind(tag=TAG).info(f"退出意图已处理:{say_goodbye}")
         return ActionResponse(

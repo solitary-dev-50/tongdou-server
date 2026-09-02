@@ -92,7 +92,10 @@ class Dialogue:
         return result
 
     def get_llm_dialogue_with_memory(
-            self, memory_str: str = None, voiceprint_config: dict = None
+            self,
+            memory_str: str = None,
+            voiceprint_config: dict = None,
+            runtime_instruction: str = None,
     ) -> List[Dict[str, str]]:
         # 构建对话
         dialogue = []
@@ -163,6 +166,10 @@ class Dialogue:
                 pass
 
             dialogue.append({"role": "system", "content": dynamic_part})
+
+        # 本轮临时规则只参与当前请求，不写进聊天历史。
+        if runtime_instruction:
+            dialogue.append({"role": "system", "content": runtime_instruction})
 
         # 第四段：实际对话历史（不含 few-shot）
         actual_messages = [m for m in non_system_messages if not m.is_temporary]

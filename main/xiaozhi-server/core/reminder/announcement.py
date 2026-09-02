@@ -13,6 +13,36 @@ _FALLBACK_PREFIXES = {
     "ru-ru": "Напоминание: ",
 }
 
+_PROACTIVE_EVENTS = {
+    "desk_activity_break": (
+        "The user has remained at their desk for a configured interval. "
+        "Prompt a brief movement break; this is presence only, not posture or health diagnosis."
+    ),
+    "drink_water": (
+        "The user has remained at their desk for a configured interval. "
+        "Give a brief drink-water reminder; do not claim thirst or that the user has not drunk water."
+    ),
+}
+
+_PROACTIVE_FALLBACKS = {
+    "desk_activity_break": {
+        "zh-cn": "该活动一下啦，别把桌子当成你的永久住址。",
+        "en-gb": "Time for a short break; your desk is not your permanent habitat.",
+        "en-ca": "Time for a short break; your desk is not your permanent habitat.",
+        "fr-fr": "Petite pause : ton bureau n'est pas ton habitat permanent.",
+        "fr-ca": "Petite pause : ton bureau n'est pas ton habitat permanent.",
+        "ru-ru": "Пора сделать короткую паузу: стол — не постоянное место обитания.",
+    },
+    "drink_water": {
+        "zh-cn": "喝口水吧，别把自己晾成桌面摆件。",
+        "en-gb": "Have some water; do not turn yourself into desk decor.",
+        "en-ca": "Have some water; do not turn yourself into desk decor.",
+        "fr-fr": "Bois un peu d'eau, ne te transforme pas en décoration de bureau.",
+        "fr-ca": "Bois un peu d'eau, ne te transforme pas en décoration de bureau.",
+        "ru-ru": "Выпей воды, не превращайся в настольное украшение.",
+    },
+}
+
 
 def fallback_announcement(text: str, locale: str) -> str:
     prefix = _FALLBACK_PREFIXES.get(str(locale).strip().lower(), "Reminder: ")
@@ -27,7 +57,38 @@ def _clean_response(response: str) -> str:
     return response
 
 
-def generate_reminder_announcement(llm, session_id: str, text: str, locale: str) -> str:
+def generate_reminder_announcement(
+    llm, session_id: str, text: str, locale: str, proactive_event: str = ""
+) -> str:
+    proactive_instruction = _PROACTIVE_EVENTS.get(proactive_event)
+    if proactive_instruction:
+        dialogue = [
+            {
+                "role": "system",
+                "content": (
+                    "You are TongDou, a slightly cheeky but genuinely caring desk companion. "
+                    "Generate one short, natural proactive reminder in the device language "
+                    f"({locale}). {proactive_instruction} "
+                    "Keep it light and kind; no medical diagnosis, no fixed alarm tone, no claims "
+                    "about the user's body, posture, thirst, or completed actions. "
+                    "Do not call tools or explain your reasoning. Output only the spoken sentence."
+                ),
+            },
+            {"role": "user", "content": f"proactive_event={proactive_event}"},
+        ]
+        chunks = [
+            chunk
+            for chunk in llm.response(f"{session_id}:proactive:{proactive_event}", dialogue)
+            if isinstance(chunk, str)
+        ]
+        response = _clean_response("".join(chunks))
+        if response and len(response) <= 180:
+            return response
+        fallback_by_locale = _PROACTIVE_FALLBACKS[proactive_event]
+        return fallback_by_locale.get(
+            str(locale).strip().lower(), fallback_by_locale["en-gb"]
+        )
+
     fallback = fallback_announcement(text, locale)
     dialogue = [
         {

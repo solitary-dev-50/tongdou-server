@@ -723,8 +723,9 @@ export default {
 
   // Home page text
   'home.addAgent': 'Agent hinzufügen',
-  'home.greeting': 'Hallo XiaoZhi',
-  'home.wish': 'Lassen Sie uns einen wunderbaren Tag haben!',
+  'home.greeting': 'TongDou ist online',
+  'home.wish': 'Du musst heute nicht alles allein tragen – ich nehme dir ein bisschen ab.',
+  'home.tagline': 'Du lebst deinen Tag. Ich denke an die Kleinigkeiten.',
   'home.languageModel': 'LLM',
   'home.voiceModel': 'TTS',
   'home.configureRole': 'Rolle konf.',

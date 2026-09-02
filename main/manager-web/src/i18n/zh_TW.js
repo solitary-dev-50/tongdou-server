@@ -723,8 +723,9 @@ export default {
 
   // 首頁文本
   'home.addAgent': '添加智能體',
-  'home.greeting': '你好小智',
-  'home.wish': '讓我們度過美好的一天！',
+  'home.greeting': '銅豆上線啦',
+  'home.wish': '今天別硬撐，我幫你接住一點。',
+  'home.tagline': '你負責過日子，我負責提醒。',
   'home.languageModel': '語言模型',
   'home.voiceModel': '音色模型',
   'home.configureRole': '配置角色',

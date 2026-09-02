@@ -723,8 +723,9 @@ export default {
 
   // 首页文本
   'home.addAgent': '添加智能体',
-  'home.greeting': '你好小智',
-  'home.wish': '让我们度过美好的一天！',
+  'home.greeting': '铜豆上线啦',
+  'home.wish': '今天别硬扛，我帮你接住一点。',
+  'home.tagline': '你负责过日子，我负责提醒。',
   'home.languageModel': '语言模型',
   'home.voiceModel': '音色模型',
   'home.configureRole': '配置角色',

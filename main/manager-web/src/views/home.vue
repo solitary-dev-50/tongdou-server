@@ -14,7 +14,7 @@
               {{ $t('home.wish') }}
             </div>
             <div class="hi-hint">
-              let's have a wonderful day!
+              {{ $t('home.tagline') }}
             </div>
             <div class="add-device-options">
             <div class="search-container">

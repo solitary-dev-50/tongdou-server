@@ -1,0 +1,507 @@
+.tongdou-auth-page {
+  min-height: 100vh;
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at 17% 20%, rgba(32, 78, 104, 0.2), transparent 36%),
+    linear-gradient(145deg, #111a20 0%, #0b1217 52%, #11191e 100%);
+  color: #e8f0f3;
+  text-align: left;
+}
+
+.tongdou-auth-shell {
+  width: min(100%, 1540px);
+  min-height: calc(100vh - 64px);
+  margin: 0 auto;
+  padding: 34px 48px 20px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(420px, 0.9fr);
+  align-items: center;
+  gap: clamp(24px, 4vw, 72px);
+  box-sizing: border-box;
+}
+
+.tongdou-auth-panel {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tongdou-auth-card {
+  width: min(100%, 520px);
+  padding: clamp(28px, 3.2vw, 46px);
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: radial-gradient(
+    ellipse at 48% 42%,
+    rgba(34, 49, 55, 0.18) 0%,
+    rgba(18, 29, 34, 0.1) 54%,
+    rgba(11, 18, 23, 0) 84%
+  );
+  box-shadow: none;
+  box-sizing: border-box;
+  backdrop-filter: none;
+}
+
+.tongdou-auth-brand {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin-bottom: 36px;
+}
+
+.tongdou-auth-brand__name {
+  color: #f4d27c;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.tongdou-auth-brand__divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 12px;
+  background: rgba(180, 201, 210, 0.24);
+}
+
+.tongdou-auth-brand__product {
+  overflow: hidden;
+  color: #81939c;
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tongdou-auth-language {
+  margin-left: auto;
+}
+
+.tongdou-auth-language .el-dropdown-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 0 7px 12px;
+  color: #9fb0b8;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tongdou-auth-language .el-icon-arrow-down {
+  margin-left: 7px;
+  transition: transform 0.2s ease;
+}
+
+.tongdou-auth-language .el-icon-arrow-down.is-open {
+  transform: rotate(180deg);
+}
+
+.tongdou-auth-heading {
+  margin-bottom: 30px;
+}
+
+.tongdou-auth-heading__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 12px;
+  color: #69e7f5;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+}
+
+.tongdou-auth-heading__eyebrow::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #69e7f5;
+  box-shadow: 0 0 0 4px rgba(105, 231, 245, 0.08);
+}
+
+.tongdou-auth-heading h1 {
+  margin: 0;
+  color: #f3f7f8;
+  font-size: clamp(30px, 3vw, 40px);
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+
+.tongdou-auth-heading p {
+  margin: 12px 0 0;
+  color: #85969e;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.tongdou-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tongdou-auth-field {
+  min-width: 0;
+}
+
+.tongdou-auth-field__label {
+  display: block;
+  margin: 0 0 8px 2px;
+  color: #aab8be;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.tongdou-auth-input {
+  display: flex;
+  min-width: 0;
+  height: 48px;
+  align-items: center;
+  padding: 0 14px;
+  border: 1px solid rgba(137, 164, 175, 0.26);
+  border-radius: 11px;
+  background: rgba(6, 12, 15, 0.54);
+  box-sizing: border-box;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.tongdou-auth-input:focus-within {
+  border-color: rgba(105, 231, 245, 0.68);
+  background: rgba(7, 15, 19, 0.82);
+  box-shadow: 0 0 0 3px rgba(105, 231, 245, 0.08);
+}
+
+.tongdou-auth-input__icon {
+  width: 20px;
+  flex: 0 0 20px;
+  margin-right: 11px;
+  color: #6f848d;
+  font-size: 17px;
+  text-align: center;
+}
+
+.tongdou-auth-inline {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 132px;
+  gap: 10px;
+}
+
+.tongdou-auth-phone {
+  display: grid;
+  grid-template-columns: 152px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.tongdou-auth-captcha {
+  width: 132px;
+  height: 48px;
+  border: 1px solid rgba(137, 164, 175, 0.26);
+  border-radius: 10px;
+  object-fit: cover;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.tongdou-auth-secondary-button {
+  min-width: 0;
+  height: 48px;
+  padding: 0 12px;
+  border: 1px solid rgba(105, 231, 245, 0.32);
+  border-radius: 10px;
+  background: rgba(105, 231, 245, 0.08);
+  color: #9cecf5;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.tongdou-auth-secondary-button:hover:not(:disabled),
+.tongdou-auth-secondary-button:focus-visible:not(:disabled) {
+  border-color: rgba(105, 231, 245, 0.62);
+  background: rgba(105, 231, 245, 0.14);
+}
+
+.tongdou-auth-secondary-button:disabled {
+  color: #56666d;
+  cursor: not-allowed;
+}
+
+.tongdou-auth-links {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 24px;
+  margin-top: 2px;
+}
+
+.tongdou-auth-link {
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: #83dce7;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.tongdou-auth-link:hover,
+.tongdou-auth-link:focus-visible {
+  color: #c4f6fb;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.tongdou-auth-primary-button {
+  width: 100%;
+  height: 50px;
+  margin-top: 6px;
+  border: 1px solid #d3aa51;
+  border-radius: 11px;
+  background: #c99d43;
+  color: #12181b;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+}
+
+.tongdou-auth-primary-button:hover:not(:disabled),
+.tongdou-auth-primary-button:focus-visible:not(:disabled) {
+  border-color: #e2bd68;
+  background: #d9ae56;
+  transform: translateY(-1px);
+}
+
+.tongdou-auth-primary-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.tongdou-auth-primary-button:disabled {
+  border-color: #665a3f;
+  background: #6f6244;
+  color: #b8ad96;
+  cursor: not-allowed;
+}
+
+.tongdou-auth-primary-button .el-icon-loading {
+  margin-right: 7px;
+}
+
+.tongdou-auth-login-types {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.tongdou-auth-login-types button {
+  width: 38px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(137, 164, 175, 0.24);
+  border-radius: 8px;
+  background: rgba(6, 12, 15, 0.44);
+  color: #82959e;
+  cursor: pointer;
+}
+
+.tongdou-auth-login-types button.is-active {
+  border-color: rgba(105, 231, 245, 0.55);
+  color: #69e7f5;
+  background: rgba(105, 231, 245, 0.09);
+}
+
+.tongdou-auth-agreement {
+  margin: 19px 0 0;
+  color: #65777f;
+  font-size: 11px;
+  line-height: 1.65;
+  text-align: center;
+}
+
+.tongdou-auth-agreement .tongdou-auth-link {
+  color: #819da8;
+  font-size: inherit;
+}
+
+.tongdou-auth-footer {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px 16px;
+  box-sizing: border-box;
+}
+
+.tongdou-auth-footer ::v-deep .copyright {
+  color: #61727a;
+}
+
+.tongdou-auth-footer ::v-deep .beian-text {
+  color: #61727a;
+}
+
+.tongdou-auth-card ::v-deep .el-input,
+.tongdou-auth-card ::v-deep .el-select {
+  min-width: 0;
+}
+
+.tongdou-auth-card ::v-deep .el-input__inner {
+  height: 46px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #e3ecef;
+  font-size: 14px;
+}
+
+.tongdou-auth-card ::v-deep .el-input__inner::placeholder {
+  color: #5f727b;
+}
+
+.tongdou-auth-card ::v-deep .el-input__suffix {
+  display: flex;
+  align-items: center;
+}
+
+.tongdou-auth-card ::v-deep .el-select .el-input__inner {
+  padding-right: 26px;
+}
+
+.tongdou-auth-card ::v-deep .el-input-group__prepend,
+.tongdou-auth-card ::v-deep .el-input-group__append {
+  border: 0;
+  background: transparent;
+}
+
+@media (max-width: 1180px) {
+  .tongdou-auth-shell {
+    padding-right: 28px;
+    padding-left: 28px;
+    grid-template-columns: minmax(0, 1fr) minmax(400px, 0.92fr);
+    gap: 20px;
+  }
+
+  .tongdou-auth-card {
+    padding: 32px;
+  }
+}
+
+@media (max-width: 800px) {
+  .tongdou-auth-page {
+    min-width: 0;
+  }
+
+  .tongdou-auth-shell {
+    width: 100%;
+    min-height: 0;
+    padding: 22px 18px 14px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+  }
+
+  .tongdou-auth-panel {
+    width: 100%;
+  }
+
+  .tongdou-auth-card {
+    width: min(100%, 520px);
+    padding: 28px;
+    border-radius: 18px;
+  }
+
+  .tongdou-auth-brand {
+    margin-bottom: 26px;
+  }
+
+  .tongdou-auth-heading {
+    margin-bottom: 24px;
+  }
+
+  .tongdou-auth-heading h1 {
+    font-size: 30px;
+  }
+
+  .tongdou-auth-footer {
+    min-height: 56px;
+    padding: 10px 18px 18px;
+  }
+
+  .tongdou-auth-footer ::v-deep .footer-content {
+    flex-wrap: wrap;
+    line-height: 1.5;
+  }
+}
+
+@media (max-width: 430px) {
+  .tongdou-auth-shell {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .tongdou-auth-card {
+    padding: 24px 20px;
+  }
+
+  .tongdou-auth-brand__divider,
+  .tongdou-auth-brand__product {
+    display: none;
+  }
+
+  .tongdou-auth-inline {
+    grid-template-columns: minmax(0, 1fr) 108px;
+    gap: 8px;
+  }
+
+  .tongdou-auth-phone {
+    grid-template-columns: 104px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .tongdou-auth-captcha {
+    width: 108px;
+  }
+
+  .tongdou-auth-secondary-button {
+    padding: 0 7px;
+    font-size: 11px;
+  }
+
+  .tongdou-auth-links {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 340px) {
+  .tongdou-auth-card {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .tongdou-auth-brand__name {
+    font-size: 16px;
+  }
+
+  .tongdou-auth-language .el-dropdown-link {
+    padding-left: 6px;
+    font-size: 11px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tongdou-auth-page *,
+  .tongdou-auth-page *::before,
+  .tongdou-auth-page *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

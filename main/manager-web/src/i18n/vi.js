@@ -723,8 +723,9 @@ export default {
 
   // Home page text
   'home.addAgent': 'Thêm tác nhân',
-  'home.greeting': 'Xin chào XiaoZhi',
-  'home.wish': 'Chúc bạn một ngày tuyệt vời!',
+  'home.greeting': 'TongDou đã lên sóng',
+  'home.wish': 'Hôm nay đừng ôm hết mọi việc — để tôi đỡ bạn một phần.',
+  'home.tagline': 'Bạn cứ sống ngày của mình. Việc nhỏ để tôi nhớ.',
   'home.languageModel': 'LLM',
   'home.voiceModel': 'TTS',
   'home.configureRole': 'Vai trò',

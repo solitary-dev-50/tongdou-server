@@ -1,7 +1,8 @@
 <template>
   <div class="copyright">
     <div class="footer-content">
-      <span>{{ year }} {{ name }} {{ version }}</span>
+      <span v-if="productMode">{{ displayYear }} TongDou · Control Center · v{{ version }}</span>
+      <span v-else>{{ year }} {{ name }} {{ version }}</span>
       <template v-if="beianGaNum !== 'null'">
         <span v-if="beianIcpNum !== 'null' || name">|</span>
         <a :href="'http://www.beian.gov.cn/portal/registerSystemInfo?recordcode=' + beianGaNum" target="_blank"
@@ -27,6 +28,12 @@ import { mapState } from 'vuex';
 
 export default {
   name: 'VersionFooter',
+  props: {
+    productMode: {
+      type: Boolean,
+      default: false
+    }
+  },
   computed: {
     ...mapState({
       version: state => state.pubConfig.version,
@@ -34,7 +41,10 @@ export default {
       beianIcpNum: state => state.pubConfig.beianIcpNum,
       beianGaNum: state => state.pubConfig.beianGaNum,
       year: state => state.pubConfig.year
-    })
+    }),
+    displayYear() {
+      return (this.year || '').replace(/^©\s*/, '© ')
+    }
   },
   mounted() {
     this.$store.dispatch('fetchPubConfig')

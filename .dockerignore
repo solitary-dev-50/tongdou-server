@@ -6,3 +6,7 @@ Dockerfile
 tmp/
 data/
 main/xiaozhi-server/mysql/data/
+**/node_modules/
+**/dist/
+**/.webpack_cache/
+main/xiaozhi-server/uploadfile/
